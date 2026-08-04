@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spliceai"
+version = "1.3.1"
+requires-python = ">=3.10"
+description = "SpliceAI: A deep learning-based tool to identify splice variants"
+readme = { file = "README.md", content-type = "text/markdown" }
+authors = [
+    { name = "Kishore Jaganathan", email = "kishorejaganathan@gmail.com" },
+]
+license = "GPL-3.0-only"
+dependencies = [
+    "keras>=2.0.5",
+    "numpy>=1.14.0",
+    "pandas>=0.24.2",
+    "pyfaidx>=0.5.0",
+    "pysam>=0.10.0",
+    "tensorflow>=1.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/illumina/SpliceAI"
+
+[project.scripts]
+spliceai = "spliceai.__main__:main"
+
+[tool.setuptools]
+packages = ["spliceai"]
+
+[tool.setuptools.package-data]
+spliceai = [
+    "annotations/grch37.txt",
+    "annotations/grch38.txt",
+    "models/spliceai1.h5",
+    "models/spliceai2.h5",
+    "models/spliceai3.h5",
+    "models/spliceai4.h5",
+    "models/spliceai5.h5",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

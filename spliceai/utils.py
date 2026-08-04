@@ -1,19 +1,19 @@
-from pkg_resources import resource_filename
+from importlib.resources import files
 import pandas as pd
 import numpy as np
 from pyfaidx import Fasta
 from keras.models import load_model
 import logging
-
+from . import name
 
 class Annotator:
 
     def __init__(self, ref_fasta, annotations):
 
         if annotations == 'grch37':
-            annotations = resource_filename(__name__, 'annotations/grch37.txt')
+            annotations = files(name).joinpath('annotations/grch37.txt')
         elif annotations == 'grch38':
-            annotations = resource_filename(__name__, 'annotations/grch38.txt')
+            annotations = files(name).joinpath('annotations/grch38.txt')
 
         try:
             df = pd.read_csv(annotations, sep='\t', dtype={'CHROM': object})
@@ -39,8 +39,8 @@ class Annotator:
             logging.error('{}'.format(e))
             exit()
 
-        paths = ('models/spliceai{}.h5'.format(x) for x in range(1, 6))
-        self.models = [load_model(resource_filename(__name__, x)) for x in paths]
+        paths = (f'models/spliceai{x}.h5' for x in range(1, 6))
+        self.models = [load_model(files(name).joinpath(x)) for x in paths]
 
     def get_name_and_strand(self, chrom, pos):
 
@@ -200,4 +200,3 @@ def get_delta_scores(record, ann, dist_var, mask):
                                 idx_nd-cov//2))
 
     return delta_scores
-

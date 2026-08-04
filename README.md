@@ -21,7 +21,7 @@ Alternately, SpliceAI can be installed from the [github repository](https://gith
 ```sh
 git clone https://github.com/Illumina/SpliceAI.git
 cd SpliceAI
-python setup.py install
+pip install .
 ```
 
 SpliceAI requires ```tensorflow>=1.2.0```, which is best installed separately via pip or conda (see the [TensorFlow](https://www.tensorflow.org/) website for other installation options):
