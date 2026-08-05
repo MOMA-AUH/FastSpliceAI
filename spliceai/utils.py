@@ -1,8 +1,10 @@
 import logging
+from collections import defaultdict
 from importlib.resources import files
 
 import numpy as np
 import pandas as pd
+from bx.intervals.intersection import Interval, IntervalTree
 from keras.models import load_model
 from pyfaidx import Fasta
 
@@ -16,21 +18,30 @@ class Annotator:
         elif annotations == "grch38":
             annotations = files(name).joinpath("annotations/grch38.txt")
 
+        self.genes = defaultdict(IntervalTree)
         try:
             df = pd.read_csv(annotations, sep="\t", dtype={"CHROM": object})
-            self.genes = df["#NAME"].to_numpy()
-            self.chroms = df["CHROM"].to_numpy()
-            self.strands = df["STRAND"].to_numpy()
-            self.tx_starts = df["TX_START"].to_numpy() + 1
-            self.tx_ends = df["TX_END"].to_numpy()
-            self.exon_starts = [
-                np.asarray([int(i) for i in c.split(",") if i]) + 1
-                for c in df["EXON_START"].to_numpy()
-            ]
-            self.exon_ends = [
-                np.asarray([int(i) for i in c.split(",") if i])
-                for c in df["EXON_END"].to_numpy()
-            ]
+            for idx, (_, row) in enumerate(df.iterrows()):
+                exons = IntervalTree()
+                exon_starts = (
+                    int(x) for x in row["EXON_START"].strip(",").split(",") if x
+                )
+                exon_ends = (int(x) for x in row["EXON_END"].strip(",").split(",") if x)
+                for exon_start, exon_end in zip(exon_starts, exon_ends):
+                    exons.insert_interval(Interval(exon_start, exon_end))
+
+                self.genes[row["CHROM"]].insert_interval(
+                    Interval(
+                        int(row["TX_START"]),
+                        int(row["TX_END"]),
+                        strand=row["STRAND"],
+                        value={
+                            "name": row["#NAME"],
+                            "exons": exons,
+                            "order": idx,
+                        },
+                    )
+                )
         except IOError as e:
             logging.error("{}".format(e))
             exit()
@@ -51,29 +62,33 @@ class Annotator:
         paths = (f"models/spliceai{x}.h5" for x in range(1, 6))
         self.models = [load_model(files(name).joinpath(x)) for x in paths]
 
-    def get_name_and_strand(self, chrom, pos):
-        chrom = normalise_chrom(chrom, list(self.chroms)[0])
-        idxs = np.intersect1d(
-            np.nonzero(self.chroms == chrom)[0],
-            np.intersect1d(
-                np.nonzero(self.tx_starts <= pos)[0], np.nonzero(pos <= self.tx_ends)[0]
-            ),
-        )
+    def get_overlapping_genes(self, chrom, pos) -> list[Interval]:
+        annotation_chrom = next(iter(self.genes), "")
+        chrom = normalise_chrom(chrom, annotation_chrom)
+        if (tree := self.genes.get(chrom)) is None:
+            return []
+        return sorted(tree.find(pos - 1, pos), key=lambda gene: gene.value["order"])
 
-        if len(idxs) >= 1:
-            return self.genes[idxs], self.strands[idxs], idxs
-        else:
-            return [], [], []
+    def get_pos_data(self, gene: Interval, pos) -> tuple[int, int, int]:
+        dist_tx_start = gene.start + 1 - pos
+        dist_tx_end = gene.end - pos
 
-    def get_pos_data(self, idx, pos):
-        dist_tx_start = self.tx_starts[idx] - pos
-        dist_tx_end = self.tx_ends[idx] - pos
-        dist_exon_bdry = min(
-            np.union1d(self.exon_starts[idx], self.exon_ends[idx]) - pos, key=abs
-        )
-        dist_ann = (dist_tx_start, dist_tx_end, dist_exon_bdry)
+        exons = gene.value["exons"]
+        distances = [
+            boundary - pos
+            for exon in exons.find(pos - 1, pos)
+            for boundary in (exon.start + 1, exon.end)
+        ]
 
-        return dist_ann
+        max_dist = gene.end - gene.start + 1
+        if before := exons.before(pos, max_dist=max_dist, num_intervals=1):
+            distances.append(before[0].end - pos)
+        if after := exons.after(pos - 1, max_dist=max_dist, num_intervals=1):
+            distances.append(after[0].start + 1 - pos)
+
+        dist_exon_bdry = min(distances, key=lambda distance: (abs(distance), distance))
+
+        return dist_tx_start, dist_tx_end, dist_exon_bdry
 
 
 def one_hot_encode(seq):
@@ -111,11 +126,11 @@ def get_delta_scores(record, ann, dist_var, mask):
         logging.warning("Skipping record (bad input): {}".format(record))
         return delta_scores
 
-    (genes, strands, idxs) = ann.get_name_and_strand(record.chrom, record.pos)
-    if len(idxs) == 0:
+    genes = ann.get_overlapping_genes(record.chrom, record.pos)
+    if not genes:
         return delta_scores
 
-    chrom = normalise_chrom(record.chrom, list(ann.ref_fasta.keys())[0])
+    chrom = normalise_chrom(record.chrom, next(iter(ann.ref_fasta.keys())))
     try:
         seq = ann.ref_fasta[chrom][
             record.pos - wid // 2 - 1 : record.pos + wid // 2
@@ -137,7 +152,7 @@ def get_delta_scores(record, ann, dist_var, mask):
         return delta_scores
 
     for j in range(len(record.alts)):
-        for i in range(len(idxs)):
+        for gene in genes:
             if "." in record.alts[j] or "-" in record.alts[j] or "*" in record.alts[j]:
                 continue
 
@@ -146,11 +161,11 @@ def get_delta_scores(record, ann, dist_var, mask):
 
             if len(record.ref) > 1 and len(record.alts[j]) > 1:
                 delta_scores.append(
-                    "{}|{}|.|.|.|.|.|.|.|.".format(record.alts[j], genes[i])
+                    "{}|{}|.|.|.|.|.|.|.|.".format(record.alts[j], gene.value["gene"])
                 )
                 continue
 
-            dist_ann = ann.get_pos_data(idxs[i], record.pos)
+            dist_ann = ann.get_pos_data(gene, record.pos)
             pad_size = [max(wid // 2 + dist_ann[0], 0), max(wid // 2 - dist_ann[1], 0)]
             ref_len = len(record.ref)
             alt_len = len(record.alts[j])
@@ -168,14 +183,14 @@ def get_delta_scores(record, ann, dist_var, mask):
             x_ref = one_hot_encode(x_ref)[None, :]
             x_alt = one_hot_encode(x_alt)[None, :]
 
-            if strands[i] == "-":
+            if gene.strand == "-":
                 x_ref = x_ref[:, ::-1, ::-1]
                 x_alt = x_alt[:, ::-1, ::-1]
 
             y_ref = np.mean([ann.models[m].predict(x_ref) for m in range(5)], axis=0)
             y_alt = np.mean([ann.models[m].predict(x_alt) for m in range(5)], axis=0)
 
-            if strands[i] == "-":
+            if gene.strand == "-":
                 y_ref = y_ref[:, ::-1]
                 y_alt = y_alt[:, ::-1]
 
@@ -215,7 +230,7 @@ def get_delta_scores(record, ann, dist_var, mask):
             delta_scores.append(
                 "{}|{}|{:.2f}|{:.2f}|{:.2f}|{:.2f}|{}|{}|{}|{}".format(
                     record.alts[j],
-                    genes[i],
+                    gene.value["name"],
                     (y[1, idx_pa, 1] - y[0, idx_pa, 1]) * (1 - mask_pa),
                     (y[0, idx_na, 1] - y[1, idx_na, 1]) * (1 - mask_na),
                     (y[1, idx_pd, 2] - y[0, idx_pd, 2]) * (1 - mask_pd),
