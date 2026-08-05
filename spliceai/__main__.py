@@ -4,6 +4,7 @@ import sys
 
 import pysam
 
+from spliceai import __version__
 from spliceai.utils import Annotator, get_delta_scores
 
 try:
@@ -15,7 +16,7 @@ except ImportError:
 
 
 def get_options():
-    parser = argparse.ArgumentParser(description="Version: 1.3.1")
+    parser = argparse.ArgumentParser(description=f"Version: {__version__}")
     parser.add_argument(
         "-I",
         metavar="input",
