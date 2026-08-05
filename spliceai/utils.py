@@ -10,7 +10,7 @@ from pyfaidx import Fasta
 
 from spliceai import logger, name
 
-_ONE_HOT_ENCODING = np.zeros((256, 4), dtype=np.int64)
+_ONE_HOT_ENCODING = np.zeros((256, 4), dtype=np.float32)
 _ONE_HOT_ENCODING[[ord(base) for base in "Aa"], 0] = 1
 _ONE_HOT_ENCODING[[ord(base) for base in "Cc"], 1] = 1
 _ONE_HOT_ENCODING[[ord(base) for base in "Gg"], 2] = 1

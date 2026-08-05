@@ -30,7 +30,7 @@ class TestOneHotEncode(unittest.TestCase):
         encoded = one_hot_encode("")
 
         self.assertEqual(encoded.shape, (0, 4))
-        self.assertEqual(encoded.dtype, np.dtype(np.int64))
+        self.assertEqual(encoded.dtype, np.dtype(np.float32))
 
 
 if __name__ == "__main__":
