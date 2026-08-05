@@ -83,7 +83,7 @@ def main():
     try:
         vcf = pysam.VariantFile(args.I)
     except OSError as e:
-        logging.error("{}".format(e))
+        logging.error(e)
         sys.exit()
 
     header = vcf.header
@@ -97,7 +97,7 @@ def main():
     try:
         output = pysam.VariantFile(args.O, mode="w", header=header)
     except OSError as e:
-        logging.error("{}".format(e))
+        logging.error(e)
         sys.exit()
 
     ann = Annotator(args.R, args.A)
