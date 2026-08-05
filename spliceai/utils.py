@@ -1,4 +1,3 @@
-import logging
 import sys
 from collections import defaultdict
 from importlib.resources import files
@@ -9,7 +8,7 @@ from bx.intervals.intersection import Interval, IntervalTree
 from keras.models import load_model
 from pyfaidx import Fasta
 
-from . import name
+from spliceai import logger, name
 
 
 class Annotator:
@@ -44,10 +43,10 @@ class Annotator:
                     )
                 )
         except OSError as e:
-            logging.error(e)
+            logger.error(e)
             sys.exit()
         except (KeyError, pd.errors.ParserError) as e:
-            logging.error(
+            logger.error(
                 f"Gene annotation file {annotations} not formatted properly: {e}"
             )
             sys.exit()
@@ -55,7 +54,7 @@ class Annotator:
         try:
             self.ref_fasta = Fasta(ref_fasta, rebuild=False)
         except OSError as e:
-            logging.error(e)
+            logger.error(e)
             sys.exit()
 
         paths = (f"models/spliceai{x}.h5" for x in range(1, 6))
@@ -122,7 +121,7 @@ def get_delta_scores(record, ann, dist_var, mask):
     try:
         record.chrom, record.pos, record.ref, len(record.alts)
     except TypeError:
-        logging.warning(f"Skipping record (bad input): {record}")
+        logger.warning(f"Skipping record (bad input): {record}")
         return delta_scores
 
     genes = ann.get_overlapping_genes(record.chrom, record.pos)
@@ -135,19 +134,19 @@ def get_delta_scores(record, ann, dist_var, mask):
             record.pos - wid // 2 - 1 : record.pos + wid // 2
         ].seq
     except (IndexError, ValueError):
-        logging.warning(f"Skipping record (fasta issue): {record}")
+        logger.warning(f"Skipping record (fasta issue): {record}")
         return delta_scores
 
     if seq[wid // 2 : wid // 2 + len(record.ref)].upper() != record.ref:
-        logging.warning(f"Skipping record (ref issue): {record}")
+        logger.warning(f"Skipping record (ref issue): {record}")
         return delta_scores
 
     if len(seq) != wid:
-        logging.warning(f"Skipping record (near chromosome end): {record}")
+        logger.warning(f"Skipping record (near chromosome end): {record}")
         return delta_scores
 
     if len(record.ref) > 2 * dist_var:
-        logging.warning(f"Skipping record (ref too long): {record}")
+        logger.warning(f"Skipping record (ref too long): {record}")
         return delta_scores
 
     for j in range(len(record.alts)):

@@ -4,7 +4,7 @@ import sys
 
 import pysam
 
-from spliceai import __version__
+from spliceai import __version__, logger
 from spliceai.utils import Annotator, get_delta_scores
 
 try:
@@ -74,7 +74,7 @@ def main():
     args = get_options()
 
     if None in [args.I, args.O, args.D, args.M]:
-        logging.error(
+        logger.error(
             "Usage: spliceai [-h] [-I [input]] [-O [output]] -R reference -A annotation "
             "[-D [distance]] [-M [mask]]"
         )
@@ -83,7 +83,7 @@ def main():
     try:
         vcf = pysam.VariantFile(args.I)
     except OSError as e:
-        logging.error(e)
+        logger.error(e)
         sys.exit()
 
     header = vcf.header
@@ -97,7 +97,7 @@ def main():
     try:
         output = pysam.VariantFile(args.O, mode="w", header=header)
     except OSError as e:
-        logging.error(e)
+        logger.error(e)
         sys.exit()
 
     ann = Annotator(args.R, args.A)
