@@ -82,7 +82,7 @@ def main():
 
     try:
         vcf = pysam.VariantFile(args.I)
-    except (IOError, ValueError) as e:
+    except OSError as e:
         logging.error("{}".format(e))
         sys.exit()
 
@@ -96,7 +96,7 @@ def main():
 
     try:
         output = pysam.VariantFile(args.O, mode="w", header=header)
-    except (IOError, ValueError) as e:
+    except OSError as e:
         logging.error("{}".format(e))
         sys.exit()
 

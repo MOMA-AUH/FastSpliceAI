@@ -43,7 +43,7 @@ class Annotator:
                         },
                     )
                 )
-        except IOError as e:
+        except OSError as e:
             logging.error("{}".format(e))
             sys.exit()
         except (KeyError, pd.errors.ParserError) as e:
@@ -56,7 +56,7 @@ class Annotator:
 
         try:
             self.ref_fasta = Fasta(ref_fasta, rebuild=False)
-        except IOError as e:
+        except OSError as e:
             logging.error("{}".format(e))
             sys.exit()
 
