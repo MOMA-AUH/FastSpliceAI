@@ -51,7 +51,7 @@ def get_options():
         nargs="?",
         default=50,
         type=int,
-        choices=range(0, 5000),
+        choices=range(5000),
         help="maximum distance between the variant and gained/lost splice "
         "site, defaults to 50",
     )
