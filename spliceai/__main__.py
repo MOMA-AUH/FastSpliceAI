@@ -78,13 +78,13 @@ def main():
             "Usage: spliceai [-h] [-I [input]] [-O [output]] -R reference -A annotation "
             "[-D [distance]] [-M [mask]]"
         )
-        exit()
+        sys.exit()
 
     try:
         vcf = pysam.VariantFile(args.I)
     except (IOError, ValueError) as e:
         logging.error("{}".format(e))
-        exit()
+        sys.exit()
 
     header = vcf.header
     header.add_line(
@@ -98,7 +98,7 @@ def main():
         output = pysam.VariantFile(args.O, mode="w", header=header)
     except (IOError, ValueError) as e:
         logging.error("{}".format(e))
-        exit()
+        sys.exit()
 
     ann = Annotator(args.R, args.A)
 

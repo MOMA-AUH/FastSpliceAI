@@ -1,4 +1,5 @@
 import logging
+import sys
 from collections import defaultdict
 from importlib.resources import files
 
@@ -44,20 +45,20 @@ class Annotator:
                 )
         except IOError as e:
             logging.error("{}".format(e))
-            exit()
+            sys.exit()
         except (KeyError, pd.errors.ParserError) as e:
             logging.error(
                 "Gene annotation file {} not formatted properly: {}".format(
                     annotations, e
                 )
             )
-            exit()
+            sys.exit()
 
         try:
             self.ref_fasta = Fasta(ref_fasta, rebuild=False)
         except IOError as e:
             logging.error("{}".format(e))
-            exit()
+            sys.exit()
 
         paths = (f"models/spliceai{x}.h5" for x in range(1, 6))
         self.models = [load_model(files(name).joinpath(x)) for x in paths]
