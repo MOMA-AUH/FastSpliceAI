@@ -10,6 +10,12 @@ from pyfaidx import Fasta
 
 from spliceai import logger, name
 
+_ONE_HOT_ENCODING = np.zeros((256, 4), dtype=np.int64)
+_ONE_HOT_ENCODING[[ord(base) for base in "Aa"], 0] = 1
+_ONE_HOT_ENCODING[[ord(base) for base in "Cc"], 1] = 1
+_ONE_HOT_ENCODING[[ord(base) for base in "Gg"], 2] = 1
+_ONE_HOT_ENCODING[[ord(base) for base in "Tt"], 3] = 1
+
 
 class Annotator:
     def __init__(self, ref_fasta, annotations):
@@ -90,14 +96,8 @@ class Annotator:
 
 
 def one_hot_encode(seq):
-    map = np.asarray(
-        [[0, 0, 0, 0], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
-    )
-
-    seq = seq.upper().replace("A", "\x01").replace("C", "\x02")
-    seq = seq.replace("G", "\x03").replace("T", "\x04").replace("N", "\x00")
-
-    return map[np.fromstring(seq, np.int8) % 5]
+    sequence = np.frombuffer(seq.encode("ascii"), dtype=np.uint8)
+    return _ONE_HOT_ENCODING[sequence]
 
 
 def normalise_chrom(source, target):
