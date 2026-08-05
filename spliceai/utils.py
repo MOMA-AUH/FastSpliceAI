@@ -113,7 +113,6 @@ def normalise_chrom(source, target):
 
 
 def get_delta_scores(record, ann, dist_var, mask):
-
     cov = 2 * dist_var + 1
     wid = 10000 + cov
     delta_scores = []
