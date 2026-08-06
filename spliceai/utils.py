@@ -157,7 +157,7 @@ def get_delta_scores(record, ann, dist_var, mask):
 
             if len(record.ref) > 1 and len(record.alts[j]) > 1:
                 delta_scores.append(
-                    "{}|{}|.|.|.|.|.|.|.|.".format(record.alts[j], gene.value["gene"])
+                    "{}|{}|.|.|.|.|.|.|.|.".format(record.alts[j], gene.value["name"])
                 )
                 continue
 
