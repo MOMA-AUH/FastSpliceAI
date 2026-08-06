@@ -5,10 +5,10 @@ from importlib.resources import files
 import numpy as np
 import pandas as pd
 from bx.intervals.intersection import Interval, IntervalTree
-from keras.models import load_model
 from pyfaidx import Fasta
 
 from spliceai import logger, name
+from spliceai.model import EnsembleModel
 
 _ONE_HOT_ENCODING = np.zeros((256, 4), dtype=np.float32)
 _ONE_HOT_ENCODING[[ord(base) for base in "Aa"], 0] = 1
@@ -63,8 +63,7 @@ class Annotator:
             logger.error(e)
             sys.exit()
 
-        paths = (f"models/spliceai{x}.h5" for x in range(1, 6))
-        self.models = [load_model(files(name).joinpath(x)) for x in paths]
+        self.model = EnsembleModel()
 
     def get_overlapping_genes(self, chrom, pos) -> list[Interval]:
         annotation_chrom = next(iter(self.genes), "")
@@ -184,8 +183,8 @@ def get_delta_scores(record, ann, dist_var, mask):
                 x_ref = x_ref[:, ::-1, ::-1]
                 x_alt = x_alt[:, ::-1, ::-1]
 
-            y_ref = np.mean([ann.models[m].predict(x_ref) for m in range(5)], axis=0)
-            y_alt = np.mean([ann.models[m].predict(x_alt) for m in range(5)], axis=0)
+            y_ref = ann.model.infer(x_ref)
+            y_alt = ann.model.infer(x_alt)
 
             if gene.strand == "-":
                 y_ref = y_ref[:, ::-1]

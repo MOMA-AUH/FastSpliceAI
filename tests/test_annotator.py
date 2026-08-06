@@ -21,8 +21,8 @@ class TestAnnotator(unittest.TestCase):
         annotations.write_text(ANNOTATIONS)
 
         with (
+            patch("spliceai.utils.EnsembleModel", return_value=object()),
             patch("spliceai.utils.Fasta", return_value={}),
-            patch("spliceai.utils.load_model", return_value=object()),
         ):
             cls.ann = Annotator("reference.fa", annotations)
 
