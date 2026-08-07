@@ -1,9 +1,8 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
-from spliceai.utils import Annotator
+from spliceai.annotation import AnnotationFormatError, TranscriptAnnotations
 
 ANNOTATIONS = """#NAME\tCHROM\tSTRAND\tTX_START\tTX_END\tEXON_START\tEXON_END
 GENE_A\t1\t+\t9\t20\t9,13,\t12,20,
@@ -13,18 +12,14 @@ LONG_INTRON\t1\t+\t40\t10000\t40,9990,\t50,10000,
 """
 
 
-class TestAnnotator(unittest.TestCase):
+class TestTranscriptAnnotations(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp_dir = tempfile.TemporaryDirectory()
         annotations = Path(cls.temp_dir.name) / "annotations.txt"
         annotations.write_text(ANNOTATIONS)
 
-        with (
-            patch("spliceai.utils.EnsembleModel", return_value=object()),
-            patch("spliceai.utils.Fasta", return_value={}),
-        ):
-            cls.ann = Annotator("reference.fa", annotations)
+        cls.ann = TranscriptAnnotations(annotations)
 
     @classmethod
     def tearDownClass(cls):
@@ -57,9 +52,9 @@ class TestAnnotator(unittest.TestCase):
             [gene.value["name"] for gene in gene_intervals], ["GENE_A", "GENE_B"]
         )
 
-        chromosomes = set(self.ann.genes)
+        chromosomes = set(self.ann)
         self.assertEqual(self.ann.get_overlapping_genes("2", 10), [])
-        self.assertEqual(set(self.ann.genes), chromosomes)
+        self.assertEqual(set(self.ann), chromosomes)
 
     def test_position_data_preserves_boundary_distances_and_tie_breaking(self):
         gene = self.get_gene("GENE_A", 13)
@@ -75,6 +70,19 @@ class TestAnnotator(unittest.TestCase):
         gene = self.get_gene("LONG_INTRON", 5000)
         self.assertEqual(self.ann.get_pos_data(gene, 5000), (-4959, 5000, -4950))
 
+    def test_rejects_malformed_annotation_rows(self):
+        cases = {
+            "missing header": "#NAME\tCHROM\nGENE\t1\n",
+            "bad strand": ANNOTATIONS.replace("GENE_A\t1\t+", "GENE_A\t1\t?"),
+            "mismatched exons": ANNOTATIONS.replace("9,13,\t12,20,", "9,13,\t20,"),
+            "invalid exon": ANNOTATIONS.replace("9,13,\t12,20,", "9,13,\t8,20,"),
+        }
+        for name, contents in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                annotations = Path(directory) / "annotations.txt"
+                annotations.write_text(contents)
+                with self.assertRaises(AnnotationFormatError):
+                    TranscriptAnnotations(annotations)
 
 if __name__ == "__main__":
     unittest.main()

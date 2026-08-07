@@ -7,7 +7,6 @@ The following components are covered under the Apache 2.0 License
 	•	bazel-0.2.3
 	•	Android-Face-Recognition-with-Deep-Learning-Library-v1.4.0
 	•	ClickHouse-v1.1.54341-testing
-	•	tensorflow-v1.11.0
 
 Apache License, Version 2.0
 
@@ -83,6 +82,8 @@ The following components are covered under the BSD-3 License
 	•	opencv-4.0.0-alpha
 	•	Synopsis-Framework-1.0.a.3
 	•	libjpeg-turbo-2.0.0	
+	•	PyTorch
+	•	h5py
 
 BSD-3 License
 

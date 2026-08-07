@@ -1,15 +1,17 @@
 ## SpliceAI: A deep learning-based tool to identify splice variants
-[![release](https://img.shields.io/badge/release-v1.3.1-orange.svg)](https://img.shields.io/badge/release-v1.3.1-orange.svg)
+[![release](https://img.shields.io/badge/release-v2.0.0-orange.svg)](https://img.shields.io/badge/release-v2.0.0-orange.svg)
 [![downloads](https://pepy.tech/badge/spliceai)](https://pepy.tech/badge/spliceai)
 
 This package annotates genetic variants with their predicted effect on splicing, as described in [Jaganathan *et al*, Cell 2019 in press](https://doi.org/10.1016/j.cell.2018.12.015). The annotations for all possible substitutions, 1 base insertions, and 1-4 base deletions within genes are available [here](https://basespace.illumina.com/s/otSPW8hnhaZR) for download. These annotations are free for academic and not-for-profit use; other use requires a commercial license from Illumina, Inc.
 
 ### License
-SpliceAI source code is provided under the [PolyForm Strict License 1.0.0](LICENSE). SpliceAI includes several third party packages provided under other open source licenses, please see [NOTICE](NOTICE) for additional details. The trained models used by SpliceAI (located in this package at spliceai/models) are provided under the [CC BY NC 4.0](LICENSE) license for academic and non-commercial use; other use requires a commercial license from Illumina, Inc.
+SpliceAI source code is provided under the [PolyForm Strict License 1.0.0](LICENSE). SpliceAI includes several third party packages provided under other open source licenses, please see [NOTICE](NOTICE) for additional details. The trained models used by SpliceAI (located in this package at spliceai/models) are provided under the [CC BY NC 4.0](spliceai/models/LICENSE) license for academic and non-commercial use; other use requires a commercial license from Illumina, Inc.
 
 Purchase of AI scores and models for commercial use is available at [AI_licensing@illumina.com](mailto:AI_licensing@illumina.com).
 
 ### Installation
+SpliceAI supports Python 3.10 through 3.13.
+
 The simplest way to install SpliceAI is through pip or conda:
 ```sh
 pip install spliceai
@@ -24,12 +26,13 @@ cd SpliceAI
 pip install .
 ```
 
-SpliceAI requires ```tensorflow>=1.2.0```, which is best installed separately via pip or conda (see the [TensorFlow](https://www.tensorflow.org/) website for other installation options):
-```sh
-pip install tensorflow
-# or
-conda install tensorflow
-```
+SpliceAI uses PyTorch for inference. The five original Keras `.h5` model files
+remain bundled and are loaded directly into the PyTorch ensemble; TensorFlow is
+not required. Command-line scoring automatically uses CUDA when it is available,
+falling back to CPU otherwise. For CUDA installation options, use the
+[PyTorch installation selector](https://pytorch.org/get-started/locally/).
+CPU-only systems should use the selector's CPU-specific PyTorch installation to
+avoid downloading unnecessary CUDA runtime packages.
 
 ### Usage
 SpliceAI can be run from the command line:
@@ -41,13 +44,50 @@ cat input.vcf | spliceai -R genome.fa -A grch37 > output.vcf
 
 Required parameters:
  - ```-I```: Input VCF with variants of interest.
- - ```-O```: Output VCF with SpliceAI predictions `ALLELE|SYMBOL|DS_AG|DS_AL|DS_DG|DS_DL|DP_AG|DP_AL|DP_DG|DP_DL` included in the INFO column (see table below for details). Only SNVs and simple INDELs (REF or ALT is a single base) within genes are annotated. Variants in multiple genes have separate predictions for each gene.
+ - ```-O```: Output VCF with SpliceAI predictions `ALLELE|SYMBOL|DS_AG|DS_AL|DS_DG|DS_DL|DP_AG|DP_AL|DP_DG|DP_DL` included in the INFO column (see table below for details). The output must not refer to the same file as the input. Only SNVs and simple INDELs (REF or ALT is a single base) within genes are annotated. Variants in multiple genes have separate predictions for each gene.
  - ```-R```: Reference genome fasta file. Can be downloaded from [GRCh37/hg19](http://hgdownload.cse.ucsc.edu/goldenPath/hg19/bigZips/hg19.fa.gz) or [GRCh38/hg38](http://hgdownload.cse.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz).
  - ```-A```: Gene annotation file. Can instead provide `grch37` or `grch38` to use GENCODE V24 canonical annotation files included with the package. To create custom gene annotation files, use `spliceai/annotations/grch37.txt` in repository as template.
 
 Optional parameters:
  - ```-D```: Maximum distance between the variant and gained/lost splice site (default: 50).
  - ```-M```: Mask scores representing annotated acceptor/donor gain and unannotated acceptor/donor loss (default: 0).
+ - ```-B```, ```--batch-size```: Maximum number of model inputs evaluated in each inference batch (default: 8). Inputs from multiple variants may share a batch.
+ - ```--threads```: Number of CPU threads used by PyTorch inference. By default, PyTorch chooses the thread count. On machines with many CPU cores, an explicit lower value such as `--threads 32` can substantially improve performance.
+ - ```--device```: Inference device: `auto`, `cpu`, or `cuda` (default: `auto`). Automatic mode tries CUDA when available and falls back to CPU if CUDA initialization fails.
+ - ```--overwrite-existing```: Replace an existing SpliceAI header and all per-record SpliceAI values. Without this flag, an input VCF that already contains a SpliceAI header is rejected to prevent mixed-version annotations.
+
+For programmatic variant scoring, construct the independent annotation,
+reference, and model resources once and reuse a `SplicingScorer`:
+
+```python
+from pyfaidx import Fasta
+
+from spliceai.annotation import TranscriptAnnotations
+from spliceai.model import configure_model_device
+from spliceai.scoring import SplicingScorer
+
+model = configure_model_device("auto")
+annotations = TranscriptAnnotations("grch37")
+reference = Fasta("genome.fa", rebuild=False)
+try:
+    scorer = SplicingScorer(
+        model=model,
+        transcript_annotations=annotations,
+        ref_fasta=reference,
+        distance=50,
+        mask=0,
+        batch_size=8,
+    )
+    scores = scorer.score(record)
+    annotated_records = scorer.score_batch(records)  # Lazy iterator of records and scores.
+finally:
+    reference.close()
+```
+
+`EnsembleModel` is a `torch.nn.Module`. Its `forward` method accepts a
+channels-last tensor with shape `(batch, length, 4)` and returns
+`(batch, length - 10000, 3)`. The `infer` method provides the same shapes with a
+NumPy input and output.
 
 Details of SpliceAI INFO field:
 
@@ -90,23 +130,37 @@ The raw files also include splicing changes corresponding to strengthening annot
 Yes, install SpliceAI and use the following script:  
 
 ```python
-from keras.models import load_model
-from pkg_resources import resource_filename
-from spliceai.utils import one_hot_encode
-import numpy as np
+from spliceai.model import EnsembleModel
+from spliceai.encoding import one_hot_encode
 
 input_sequence = 'CGATCTGACGTGGGTGTCATCGCATTATCGATATTGCAT'
 # Replace this with your custom sequence
 
 context = 10000
-paths = ('models/spliceai{}.h5'.format(x) for x in range(1, 6))
-models = [load_model(resource_filename('spliceai', x)) for x in paths]
+model = EnsembleModel()
+# To use CUDA, call model.to("cuda") before inference.
 x = one_hot_encode('N'*(context//2) + input_sequence + 'N'*(context//2))[None, :]
-y = np.mean([models[m].predict(x) for m in range(5)], axis=0)
+y = model.infer(x)
 
 acceptor_prob = y[0, :, 1]
 donor_prob = y[0, :, 2]
 ```
+
+### Performance benchmarks
+
+Run the lightweight import and annotation-index benchmark with:
+
+```sh
+python benchmarks/benchmark_startup.py
+```
+
+Run model throughput benchmarks for batch sizes 1 and 8 with:
+
+```sh
+python benchmarks/benchmark_inference.py
+```
+
+Both commands emit JSON so results can be recorded and compared across revisions.
 
 ### Contact
 Kishore Jaganathan: kjaganathan@illumina.com
