@@ -147,7 +147,7 @@ class SplicingScorer:
         try:
             record.chrom, record.pos, record.ref, len(record.alts)
         except TypeError:
-            logger.warning(f"Skipping record (bad input): {record}")
+            logger.warning(f"Skipping record (bad input): {record}".strip())
             return _PreparedRecord(empty_context, iter(()))
 
         genes = self.transcript_annotations.get_overlapping_genes(record.chrom, record.pos)
@@ -161,17 +161,17 @@ class SplicingScorer:
         try:
             sequence = self.ref_fasta[chrom][window_start:window_end].seq
         except (IndexError, KeyError, ValueError):
-            logger.warning(f"Skipping record (fasta issue): {record}")
+            logger.warning(f"Skipping record (fasta issue): {record}".strip())
             return _PreparedRecord(empty_context, iter(()))
 
         ref_len = len(record.ref)
         midpoint = self.window_width // 2
         if sequence[midpoint : midpoint + ref_len].upper() != record.ref:
-            logger.warning(f"Skipping record (ref issue): {record}")
+            logger.warning(f"Skipping record (ref issue): {record}".strip())
             return _PreparedRecord(empty_context, iter(()))
 
         if len(sequence) != self.window_width:
-            logger.warning(f"Skipping record (near chromosome end): {record}")
+            logger.warning(f"Skipping record (near chromosome end): {record}".strip())
             return _PreparedRecord(empty_context, iter(()))
 
         simple_alt_indexes = []
@@ -183,7 +183,7 @@ class SplicingScorer:
                 deleted_bases = ref_len - len(alt)
                 if deleted_bases > 2 * self.distance:
                     logger.warning(
-                        f"Skipping alternate allele (deletion too long): {record}"
+                        f"Skipping alternate allele (deletion too long): {record}".strip()
                     )
                     continue
                 simple_alt_indexes.append(alt_index)

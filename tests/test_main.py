@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pysam
 
@@ -15,6 +15,7 @@ from spliceai.__main__ import (
     add_spliceai_header,
     configure_process,
     get_options,
+    log_scoring_progress,
     main,
     paths_refer_to_same_file,
     positive_int,
@@ -174,6 +175,78 @@ class TestOptions(unittest.TestCase):
         self.assertIn(f"SpliceAIv{__version__}", header.info["SpliceAI"].description)
 
 
+class TestProgressLogging(unittest.TestCase):
+    def test_logs_progress_at_thirty_second_intervals(self):
+        records = [
+            ("record-1", []),
+            ("record-2", []),
+            ("record-3", []),
+            ("record-4", []),
+        ]
+
+        with (
+            patch(
+                "spliceai.__main__.time.monotonic",
+                side_effect=(0.0, 29.0, 30.0, 59.0, 60.0, 60.0),
+            ),
+            patch("spliceai.__main__.logger.info") as info,
+        ):
+            self.assertEqual(list(log_scoring_progress(records)), records)
+
+        self.assertEqual(
+            info.call_args_list,
+            [
+                call("Scoring variants"),
+                call(
+                    "Scored %d records in %.1f seconds (%.1f records/second)",
+                    2,
+                    30.0,
+                    2 / 30,
+                ),
+                call(
+                    "Scored %d records in %.1f seconds (%.1f records/second)",
+                    4,
+                    60.0,
+                    4 / 60,
+                ),
+                call(
+                    "Finished scoring %d records in %.1f seconds (%.1f records/second)",
+                    4,
+                    60.0,
+                    4 / 60,
+                ),
+            ],
+        )
+
+    def test_logs_completion_for_short_and_empty_streams(self):
+        cases = (([], 0, 0.0), (["record"], 1, 0.5))
+
+        for records, expected_count, expected_rate in cases:
+            with (
+                self.subTest(records=records),
+                patch(
+                    "spliceai.__main__.time.monotonic",
+                    side_effect=(10.0, 12.0, 12.0) if records else (10.0, 12.0),
+                ),
+                patch("spliceai.__main__.logger.info") as info,
+            ):
+                self.assertEqual(list(log_scoring_progress(records)), records)
+
+            self.assertEqual(
+                info.call_args_list,
+                [
+                    call("Scoring variants"),
+                    call(
+                        "Finished scoring %d records in %.1f seconds "
+                        "(%.1f records/second)",
+                        expected_count,
+                        2.0,
+                        expected_rate,
+                    ),
+                ],
+            )
+
+
 class TestMain(unittest.TestCase):
     def test_closes_resources_after_success(self):
         args = SimpleNamespace(
@@ -212,8 +285,9 @@ class TestMain(unittest.TestCase):
                 return_value=annotations,
             ),
             patch("spliceai.__main__.Fasta", return_value=reference),
-            patch("spliceai.__main__.SplicingScorer", return_value=scorer) as scorer_type,
-            patch("spliceai.__main__.tqdm", side_effect=lambda records, **_: records),
+            patch(
+                "spliceai.__main__.SplicingScorer", return_value=scorer
+            ) as scorer_type,
         ):
             self.assertEqual(main(), 0)
 
@@ -324,7 +398,6 @@ class TestMain(unittest.TestCase):
             ),
             patch("spliceai.__main__.Fasta", return_value=reference),
             patch("spliceai.__main__.SplicingScorer", return_value=scorer),
-            patch("spliceai.__main__.tqdm", side_effect=lambda records, **_: records),
         ):
             self.assertEqual(main(), 0)
 

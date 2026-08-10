@@ -2,12 +2,12 @@ import argparse
 import logging
 import os
 import signal
+import time
 from pathlib import Path
 
 import pysam
 import torch
 from pyfaidx import Fasta
-from tqdm import tqdm
 
 from spliceai import __version__, logger
 from spliceai.annotation import AnnotationFormatError, TranscriptAnnotations
@@ -22,9 +22,12 @@ except ImportError:
     from sys import stdout as std_out
 
 
+_PROGRESS_LOG_INTERVAL = 30.0
+
+
 def configure_process():
     """Configure command-line logging and interrupt handling."""
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     signal.signal(signal.SIGINT, signal.default_int_handler)
 
 
@@ -66,6 +69,36 @@ def positive_int(value):
     if value < 1:
         raise argparse.ArgumentTypeError("must be a positive integer")
     return value
+
+
+def log_scoring_progress(scored_records, interval=_PROGRESS_LOG_INTERVAL):
+    """Yield scored records and periodically log completed-record progress."""
+    started_at = time.monotonic()
+    last_logged_at = started_at
+    records_processed = 0
+
+    for scored_record in scored_records:
+        yield scored_record
+        records_processed += 1
+        current_time = time.monotonic()
+        if current_time - last_logged_at >= interval:
+            elapsed = current_time - started_at
+            logger.info(
+                "Scored %d records in %.1f seconds (%.1f records/second)",
+                records_processed,
+                elapsed,
+                records_processed / elapsed,
+            )
+            last_logged_at = current_time
+
+    elapsed = time.monotonic() - started_at
+    rate = records_processed / elapsed if elapsed else 0.0
+    logger.info(
+        "Finished scoring %d records in %.1f seconds (%.1f records/second)",
+        records_processed,
+        elapsed,
+        rate,
+    )
 
 
 def get_options():
@@ -193,8 +226,11 @@ def main():
         vcf = pysam.VariantFile(args.I)
         header = vcf.header
         add_spliceai_header(header, args.overwrite_existing)
+        logger.info("Loading models")
         model = EnsembleSpliceAIModel().to(args.device)
+        logger.info("Parsing transcript annotations")
         transcript_annotations = TranscriptAnnotations(args.A)
+        logger.info("Loading reference FASTA")
         ref_fasta = Fasta(args.R, rebuild=False)
         scorer = SplicingScorer(
             model=model,
@@ -206,7 +242,8 @@ def main():
         )
         output = pysam.VariantFile(args.O, mode="w", header=header)
 
-        for record, scores in tqdm(scorer.score_batch(vcf), disable=None):
+        logger.info("Initializing scoring")
+        for record, scores in log_scoring_progress(scorer.score_batch(vcf)):
             if args.overwrite_existing and "SpliceAI" in record.info:
                 del record.info["SpliceAI"]
             if scores:
