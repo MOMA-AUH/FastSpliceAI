@@ -13,8 +13,6 @@ import pysam
 from spliceai import __version__
 from spliceai.__main__ import (
     add_spliceai_header,
-    configure_model_device,
-    configure_model_threads,
     configure_process,
     get_options,
     main,
@@ -38,12 +36,15 @@ class TestOptions(unittest.TestCase):
     def test_batch_size_defaults_to_eight(self):
         argv = ["spliceai", "-R", "reference.fa", "-A", "grch37"]
 
-        with patch.object(sys, "argv", argv):
+        with (
+            patch.object(sys, "argv", argv),
+            patch("spliceai.__main__.torch.cuda.is_available", return_value=False),
+        ):
             args = get_options()
 
         self.assertEqual(args.batch_size, DEFAULT_BATCH_SIZE)
         self.assertIsNone(args.threads)
-        self.assertEqual(args.device, "auto")
+        self.assertEqual(args.device, "cpu")
         self.assertFalse(args.overwrite_existing)
 
     def test_accepts_explicit_batch_size(self):
@@ -57,7 +58,10 @@ class TestOptions(unittest.TestCase):
             "32",
         ]
 
-        with patch.object(sys, "argv", argv):
+        with (
+            patch.object(sys, "argv", argv),
+            patch("spliceai.__main__.torch.cuda.is_available", return_value=False),
+        ):
             args = get_options()
 
         self.assertEqual(args.batch_size, 32)
@@ -83,72 +87,66 @@ class TestOptions(unittest.TestCase):
             "32",
         ]
 
-        with patch.object(sys, "argv", argv):
+        with (
+            patch.object(sys, "argv", argv),
+            patch("spliceai.__main__.torch.set_num_threads") as set_num_threads,
+            patch("spliceai.__main__.torch.cuda.is_available", return_value=False),
+        ):
             args = get_options()
 
         self.assertEqual(args.threads, 32)
-
-    def test_configures_requested_pytorch_threads(self):
-        with patch("torch.set_num_threads") as set_num_threads:
-            configure_model_threads(32)
-
         set_num_threads.assert_called_once_with(32)
 
-    def test_does_not_import_pytorch_without_thread_override(self):
-        with patch.dict(sys.modules, {"torch": None}):
-            configure_model_threads(None)
+    def test_accepts_explicit_cpu_device(self):
+        argv = [
+            "spliceai",
+            "-R",
+            "reference.fa",
+            "-A",
+            "grch37",
+            "--device",
+            "cpu",
+        ]
 
-    def test_configures_explicit_cpu_model(self):
-        model = MagicMock()
-        with patch("spliceai.model.EnsembleSpliceAIModel", return_value=model):
-            self.assertIs(configure_model_device("cpu"), model.to.return_value)
-        model.to.assert_called_once_with("cpu")
-
-    def test_rejects_unavailable_explicit_cuda(self):
         with (
-            patch("torch.cuda.is_available", return_value=False),
-            self.assertRaisesRegex(ValueError, "not available"),
+            patch.object(sys, "argv", argv),
+            patch("spliceai.__main__.torch.cuda.is_available") as cuda_available,
         ):
-            configure_model_device("cuda")
+            args = get_options()
 
-    def test_auto_device_defers_to_default_model(self):
-        model = MagicMock()
+        self.assertEqual(args.device, "cpu")
+        cuda_available.assert_not_called()
+
+    def test_unavailable_explicit_cuda_falls_back_to_cpu(self):
+        argv = [
+            "spliceai",
+            "-R",
+            "reference.fa",
+            "-A",
+            "grch37",
+            "--device",
+            "cuda",
+        ]
         with (
-            patch("spliceai.model.EnsembleSpliceAIModel", return_value=model) as constructor,
-            patch("spliceai.model.torch.cuda.is_available", return_value=False),
+            patch.object(sys, "argv", argv),
+            patch("spliceai.__main__.torch.cuda.is_available", return_value=False),
+            patch("spliceai.__main__.logger.warning") as warning,
         ):
-            self.assertIs(configure_model_device("auto"), model)
+            args = get_options()
 
-        constructor.assert_called_once_with()
-        model.to.assert_not_called()
+        self.assertEqual(args.device, "cpu")
+        warning.assert_called_once_with("CUDA is not available, falling back to CPU")
 
     def test_auto_device_uses_cuda_when_available(self):
-        model = MagicMock()
-        model.to.return_value = model
+        argv = ["spliceai", "-R", "reference.fa", "-A", "grch37"]
+
         with (
-            patch("spliceai.model.EnsembleSpliceAIModel", return_value=model),
-            patch("spliceai.model.torch.cuda.is_available", return_value=True),
+            patch.object(sys, "argv", argv),
+            patch("spliceai.__main__.torch.cuda.is_available", return_value=True),
         ):
-            self.assertIs(configure_model_device("auto"), model)
+            args = get_options()
 
-        model.to.assert_called_once_with("cuda")
-
-    def test_auto_device_falls_back_to_fresh_cpu_model(self):
-        cuda_model = MagicMock()
-        cuda_model.to.side_effect = RuntimeError("CUDA allocation failed")
-        cpu_model = MagicMock()
-        with (
-            patch(
-                "spliceai.model.EnsembleSpliceAIModel",
-                side_effect=(cuda_model, cpu_model),
-            ) as constructor,
-            patch("spliceai.model.torch.cuda.is_available", return_value=True),
-            patch("spliceai.model.logger.warning") as warning,
-        ):
-            self.assertIs(configure_model_device("auto"), cpu_model)
-
-        self.assertEqual(constructor.call_count, 2)
-        warning.assert_called_once()
+        self.assertEqual(args.device, "cuda")
 
     def test_detects_equivalent_input_and_output_paths(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -187,7 +185,7 @@ class TestMain(unittest.TestCase):
             M=0,
             batch_size=8,
             threads=32,
-            device="auto",
+            device="cpu",
             overwrite_existing=False,
         )
         input_vcf = MagicMock()
@@ -201,15 +199,14 @@ class TestMain(unittest.TestCase):
 
         with (
             patch("spliceai.__main__.configure_process"),
-            patch("spliceai.__main__.configure_model_threads") as configure_threads,
             patch("spliceai.__main__.get_options", return_value=args),
             patch(
                 "spliceai.__main__.pysam.VariantFile",
                 side_effect=(input_vcf, output_vcf),
             ),
             patch(
-                "spliceai.__main__.configure_model_device", return_value=model
-            ) as configure_device,
+                "spliceai.__main__.EnsembleSpliceAIModel", return_value=model
+            ) as model_type,
             patch(
                 "spliceai.__main__.TranscriptAnnotations",
                 return_value=annotations,
@@ -220,10 +217,10 @@ class TestMain(unittest.TestCase):
         ):
             self.assertEqual(main(), 0)
 
-        configure_threads.assert_called_once_with(32)
-        configure_device.assert_called_once_with("auto")
+        model_type.assert_called_once_with()
+        model.to.assert_called_once_with("cpu")
         scorer_type.assert_called_once_with(
-            model=model,
+            model=model.to.return_value,
             transcript_annotations=annotations,
             ref_fasta=reference,
             distance=50,
@@ -257,7 +254,7 @@ class TestMain(unittest.TestCase):
                 "spliceai.__main__.pysam.VariantFile", return_value=input_vcf
             ) as variant_file,
             patch(
-                "spliceai.__main__.configure_model_device",
+                "spliceai.__main__.EnsembleSpliceAIModel",
                 side_effect=ValueError("CUDA unavailable"),
             ),
         ):
@@ -276,7 +273,7 @@ class TestMain(unittest.TestCase):
             M=0,
             batch_size=8,
             threads=None,
-            device="auto",
+            device="cpu",
             overwrite_existing=False,
         )
         with (
@@ -320,7 +317,7 @@ class TestMain(unittest.TestCase):
                 "spliceai.__main__.pysam.VariantFile",
                 side_effect=(input_vcf, output_vcf),
             ),
-            patch("spliceai.__main__.configure_model_device", return_value=model),
+            patch("spliceai.__main__.EnsembleSpliceAIModel", return_value=model),
             patch(
                 "spliceai.__main__.TranscriptAnnotations",
                 return_value=annotations,
