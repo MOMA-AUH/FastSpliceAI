@@ -1,3 +1,8 @@
+"""PyTorch port of the SpliceAI model.
+
+Architecture: https://doi.org/10.1016/j.cell.2018.12.015
+"""
+
 import itertools
 from collections.abc import Sequence
 from importlib.resources import as_file, files
