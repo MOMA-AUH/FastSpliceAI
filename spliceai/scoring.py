@@ -10,11 +10,10 @@ from pyfaidx import Fasta
 from spliceai import logger
 from spliceai.annotation import TranscriptAnnotations
 from spliceai.encoding import one_hot_encode
-from spliceai.model import EnsembleSpliceAIModel
+from spliceai.model import EnsembleSpliceAIModel, CONTEXT, HALF_CONTEXT
 from spliceai.utils import normalise_chrom
 
 DEFAULT_BATCH_SIZE = 8
-_MODEL_CONTEXT = 10000
 
 __all__ = [
     "DEFAULT_BATCH_SIZE",
@@ -67,7 +66,7 @@ class SplicingScorer:
         if (
             not isinstance(distance, Integral)
             or isinstance(distance, bool)
-            or not 0 <= distance < 5000
+            or not 0 <= distance < HALF_CONTEXT
         ):
             raise ValueError("distance must be an integer between 0 and 4999")
         if not isinstance(mask, Integral) or mask not in (0, 1):
@@ -85,7 +84,7 @@ class SplicingScorer:
         self.mask = bool(mask)
         self.batch_size = int(batch_size)
         self.coverage = 2 * self.distance + 1
-        self.window_width = _MODEL_CONTEXT + self.coverage
+        self.window_width = CONTEXT + self.coverage
 
     def score(self, record):
         """Return delta scores for one variant record."""
@@ -138,7 +137,7 @@ class SplicingScorer:
             gene_index=gene_index,
             alternate_index=alternate_index,
             inputs=inputs,
-            output_length=len(sequence) - _MODEL_CONTEXT,
+            output_length=len(sequence) - CONTEXT,
             reverse_output=reverse_output,
         )
 

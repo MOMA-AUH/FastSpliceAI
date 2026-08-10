@@ -16,11 +16,11 @@ from torch import nn
 
 from spliceai import name
 
-__all__ = ["EnsembleSpliceAIModel"]
+__all__ = ["EnsembleSpliceAIModel", "CONTEXT", "HALF_CONTEXT"]
 
 _CHANNELS = 32
-_CONTEXT = 10000
-_HALF_CONTEXT = _CONTEXT // 2
+CONTEXT = 10000
+HALF_CONTEXT = CONTEXT // 2
 _BATCH_NORM_EPSILON = 0.001
 _SKIP_CONNECTION_SPECS = (
     {"kernel_size": 11, "dilation": 1},
