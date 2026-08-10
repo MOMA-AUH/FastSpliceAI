@@ -54,10 +54,10 @@ reference, and model resources once and reuse a `SplicingScorer`:
 from pyfaidx import Fasta
 
 from spliceai.annotation import TranscriptAnnotations
-from spliceai.model import configure_model_device
+from spliceai.model import EnsembleSpliceAIModel
 from spliceai.scoring import SplicingScorer
 
-model = configure_model_device("auto")
+model = EnsembleSpliceAIModel()
 annotations = TranscriptAnnotations("grch37")
 reference = Fasta("genome.fa", rebuild=False)
 try:
@@ -121,14 +121,14 @@ The raw files also include splicing changes corresponding to strengthening annot
 Yes, install SpliceAI and use the following script:  
 
 ```python
-from spliceai.model import EnsembleModel
+from spliceai.model import EnsembleSpliceAIModel
 from spliceai.encoding import one_hot_encode
 
 input_sequence = 'CGATCTGACGTGGGTGTCATCGCATTATCGATATTGCAT'
 # Replace this with your custom sequence
 
 context = 10000
-model = EnsembleModel()
+model = EnsembleSpliceAIModel()
 # To use CUDA, call model.to("cuda") before inference.
 x = one_hot_encode('N'*(context//2) + input_sequence + 'N'*(context//2))[None, :]
 y = model.infer(x)
@@ -136,22 +136,6 @@ y = model.infer(x)
 acceptor_prob = y[0, :, 1]
 donor_prob = y[0, :, 2]
 ```
-
-### Performance benchmarks
-
-Run the lightweight import and annotation-index benchmark with:
-
-```sh
-python benchmarks/benchmark_startup.py
-```
-
-Run model throughput benchmarks for batch sizes 1 and 8 with:
-
-```sh
-python benchmarks/benchmark_inference.py
-```
-
-Both commands emit JSON so results can be recorded and compared across revisions.
 
 ### Contact
 Kishore Jaganathan: kjaganathan@illumina.com
