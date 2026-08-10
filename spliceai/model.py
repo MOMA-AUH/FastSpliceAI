@@ -16,7 +16,7 @@ from torch import nn
 
 from spliceai import name
 
-__all__ = ["EnsembleModel"]
+__all__ = ["EnsembleSpliceAIModel"]
 
 _CHANNELS = 32
 _CONTEXT = 10000
@@ -166,7 +166,7 @@ class SpliceAIModel(nn.Module):
         return F.softmax(self.output_conv(x_skip), dim=1)
 
 
-class EnsembleModel(nn.Module):
+class EnsembleSpliceAIModel(nn.Module):
     """Frozen PyTorch ensemble backed by the five bundled Keras weight files."""
 
     def __init__(self, model_paths: Sequence[str | Path] | None = None):

@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from spliceai import __version__, logger
 from spliceai.annotation import AnnotationFormatError, TranscriptAnnotations
-from spliceai.model import EnsembleModel
+from spliceai.model import EnsembleSpliceAIModel
 from spliceai.scoring import DEFAULT_BATCH_SIZE, SplicingScorer
 
 try:
@@ -193,7 +193,7 @@ def main():
         vcf = pysam.VariantFile(args.I)
         header = vcf.header
         add_spliceai_header(header, args.overwrite_existing)
-        model = EnsembleModel().to(args.device)
+        model = EnsembleSpliceAIModel().to(args.device)
         transcript_annotations = TranscriptAnnotations(args.A)
         ref_fasta = Fasta(args.R, rebuild=False)
         scorer = SplicingScorer(

@@ -9,7 +9,7 @@ import torch
 from pyfaidx import Fasta
 
 from spliceai.annotation import TranscriptAnnotations
-from spliceai.model import EnsembleModel
+from spliceai.model import EnsembleSpliceAIModel
 from spliceai.scoring import DEFAULT_BATCH_SIZE, SplicingScorer
 from tests import name
 
@@ -104,7 +104,7 @@ class TestDeltaScore(unittest.TestCase):
     def setUpClass(cls):
         fasta_path = files(name).joinpath("data/test.fa")
         fasta_without_prefix_path = files(name).joinpath("data/test_without_prefix.fa")
-        model = EnsembleModel()
+        model = EnsembleSpliceAIModel()
         cls.ann = TranscriptAnnotations("grch37")
         cls.ann.model = model
         cls.ann.ref_fasta = Fasta(fasta_path, rebuild=False)

@@ -100,7 +100,7 @@ class TestOptions(unittest.TestCase):
 
     def test_configures_explicit_cpu_model(self):
         model = MagicMock()
-        with patch("spliceai.model.EnsembleModel", return_value=model):
+        with patch("spliceai.model.EnsembleSpliceAIModel", return_value=model):
             self.assertIs(configure_model_device("cpu"), model.to.return_value)
         model.to.assert_called_once_with("cpu")
 
@@ -114,7 +114,7 @@ class TestOptions(unittest.TestCase):
     def test_auto_device_defers_to_default_model(self):
         model = MagicMock()
         with (
-            patch("spliceai.model.EnsembleModel", return_value=model) as constructor,
+            patch("spliceai.model.EnsembleSpliceAIModel", return_value=model) as constructor,
             patch("spliceai.model.torch.cuda.is_available", return_value=False),
         ):
             self.assertIs(configure_model_device("auto"), model)
@@ -126,7 +126,7 @@ class TestOptions(unittest.TestCase):
         model = MagicMock()
         model.to.return_value = model
         with (
-            patch("spliceai.model.EnsembleModel", return_value=model),
+            patch("spliceai.model.EnsembleSpliceAIModel", return_value=model),
             patch("spliceai.model.torch.cuda.is_available", return_value=True),
         ):
             self.assertIs(configure_model_device("auto"), model)
@@ -139,7 +139,7 @@ class TestOptions(unittest.TestCase):
         cpu_model = MagicMock()
         with (
             patch(
-                "spliceai.model.EnsembleModel",
+                "spliceai.model.EnsembleSpliceAIModel",
                 side_effect=(cuda_model, cpu_model),
             ) as constructor,
             patch("spliceai.model.torch.cuda.is_available", return_value=True),

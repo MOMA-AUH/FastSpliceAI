@@ -10,7 +10,7 @@ from pyfaidx import Fasta
 from spliceai import logger
 from spliceai.annotation import TranscriptAnnotations
 from spliceai.encoding import one_hot_encode
-from spliceai.model import EnsembleModel
+from spliceai.model import EnsembleSpliceAIModel
 from spliceai.utils import normalise_chrom
 
 DEFAULT_BATCH_SIZE = 8
@@ -57,7 +57,7 @@ class _PreparedRecord:
 class SplicingScorer:
     def __init__(
         self,
-        model: EnsembleModel,
+        model: EnsembleSpliceAIModel,
         transcript_annotations: TranscriptAnnotations,
         ref_fasta: Fasta,
         distance: int,

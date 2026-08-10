@@ -14,7 +14,7 @@ torch.set_num_threads(2)
 class TestEnsembleModel(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.model = model_module.EnsembleModel()
+        cls.model = model_module.EnsembleSpliceAIModel()
 
     def test_loads_all_five_frozen_members(self):
         self.assertEqual(len(self.model.members), 5)
@@ -97,14 +97,14 @@ class TestEnsembleModel(unittest.TestCase):
 
     def test_rejects_empty_ensemble(self):
         with self.assertRaisesRegex(ValueError, "at least one"):
-            model_module.EnsembleModel(model_paths=[])
+            model_module.EnsembleSpliceAIModel(model_paths=[])
 
     def test_reports_missing_and_malformed_keras_weights(self):
         with tempfile.NamedTemporaryFile(suffix=".h5") as weight_file:
             with h5py.File(weight_file.name, "w"):
                 pass
             with self.assertRaisesRegex(ValueError, "missing model_weights/conv1d_1"):
-                model_module.EnsembleModel(model_paths=[weight_file.name])
+                model_module.EnsembleSpliceAIModel(model_paths=[weight_file.name])
 
         with tempfile.NamedTemporaryFile(suffix=".h5") as weight_file:
             with h5py.File(weight_file.name, "w") as weights:
@@ -114,7 +114,7 @@ class TestEnsembleModel(unittest.TestCase):
                     dtype="f4",
                 )
             with self.assertRaisesRegex(ValueError, "has shape"):
-                model_module.EnsembleModel(model_paths=[weight_file.name])
+                model_module.EnsembleSpliceAIModel(model_paths=[weight_file.name])
 
 
 if __name__ == "__main__":
