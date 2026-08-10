@@ -12,7 +12,12 @@ from pyfaidx import Fasta
 from spliceai import __version__, logger
 from spliceai.annotation import AnnotationFormatError, TranscriptAnnotations
 from spliceai.model import EnsembleSpliceAIModel
-from spliceai.scoring import DEFAULT_BATCH_SIZE, SplicingScorer
+from spliceai.scoring import (
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_DISTANCE,
+    DEFAULT_MASK,
+    SplicingScorer,
+)
 
 try:
     from sys.stdin import buffer as std_in
@@ -135,21 +140,21 @@ def get_options():
         "-D",
         metavar="distance",
         nargs="?",
-        default=50,
+        default=DEFAULT_DISTANCE,
         type=int,
         choices=range(5000),
         help="maximum distance between the variant and gained/lost splice "
-        "site, defaults to 50",
+        f"site, defaults to {DEFAULT_DISTANCE}",
     )
     parser.add_argument(
         "-M",
         metavar="mask",
         nargs="?",
-        default=0,
+        default=DEFAULT_MASK,
         type=int,
         choices=[0, 1],
         help="mask scores representing annotated acceptor/donor gain and "
-        "unannotated acceptor/donor loss, defaults to 0",
+        f"unannotated acceptor/donor loss, defaults to {DEFAULT_MASK}",
     )
     parser.add_argument(
         "-B",

@@ -13,6 +13,8 @@ from spliceai.encoding import one_hot_encode
 from spliceai.model import EnsembleSpliceAIModel, CONTEXT, HALF_CONTEXT
 from spliceai.utils import normalise_chrom
 
+DEFAULT_DISTANCE = 50
+DEFAULT_MASK = 0
 DEFAULT_BATCH_SIZE = 8
 
 __all__ = [
@@ -59,8 +61,8 @@ class SplicingScorer:
         model: EnsembleSpliceAIModel,
         transcript_annotations: TranscriptAnnotations,
         ref_fasta: Fasta,
-        distance: int,
-        mask: int,
+        distance: int = DEFAULT_DISTANCE,
+        mask: int = DEFAULT_MASK,
         batch_size: int = DEFAULT_BATCH_SIZE,
     ):
         if (
