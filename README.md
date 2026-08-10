@@ -12,18 +12,9 @@ Purchase of AI scores and models for commercial use is available at [AI_licensin
 ### Installation
 SpliceAI supports Python 3.10 through 3.13.
 
-The simplest way to install SpliceAI is through pip or conda:
+SpliceAI can be installed from the [github repository](https://github.com/jakobjn/SpliceAI.git):
 ```sh
-pip install spliceai
-# or
-conda install -c bioconda spliceai
-```
-
-Alternately, SpliceAI can be installed from the [github repository](https://github.com/Illumina/SpliceAI.git):
-```sh
-git clone https://github.com/Illumina/SpliceAI.git
-cd SpliceAI
-pip install .
+pip install git+https://github.com/jakobjn/SpliceAI.git
 ```
 
 SpliceAI uses PyTorch for inference. The five original Keras `.h5` model files
