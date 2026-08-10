@@ -37,11 +37,11 @@ class TestEnsembleModel(unittest.TestCase):
             )
 
         np.testing.assert_array_equal(
-            self.model.members[0].initial_conv.weight.numpy(),
+            self.model.members[0].stem[0].module.weight.numpy(),
             expected_kernel,
         )
         np.testing.assert_array_equal(
-            self.model.members[0].residual_blocks[0].batch_norm_1.running_mean.numpy(),
+            self.model.members[0].stem[1].module[0][0].running_mean.numpy(),
             expected_mean,
         )
 
