@@ -8,13 +8,9 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from spliceai import logger, name
+from spliceai import name
 
-__all__ = [
-    "EnsembleModel",
-    "configure_model_device",
-    "configure_model_threads",
-]
+__all__ = ["EnsembleModel"]
 
 _CHANNELS = 32
 _CONTEXT = 10000
@@ -49,6 +45,7 @@ _SKIP_CONVOLUTION_NAMES = (
     "conv1d_29",
     "conv1d_38",
 )
+
 
 class _FrozenBatchNorm1d(nn.Module):
     """Batch normalization that always uses stored Keras inference statistics."""
@@ -261,36 +258,3 @@ class EnsembleModel(nn.Module):
         with torch.inference_mode():
             predictions = self(tensor)
         return predictions.detach().cpu().numpy()
-
-
-def configure_model_threads(threads):
-    """Set the PyTorch intra-op thread count when explicitly requested."""
-    if threads is not None:
-        torch.set_num_threads(threads)
-
-
-def configure_model_device(device):
-    """Construct a model on the requested device, with auto-mode fallback."""
-    if device == "auto":
-        if torch.cuda.is_available():
-            try:
-                return EnsembleModel().to("cuda")
-            except (AssertionError, RuntimeError) as error:
-                logger.warning(
-                    "Unable to initialize model on CUDA; falling back to CPU: %s",
-                    error,
-                )
-        try:
-            return EnsembleModel()
-        except (AssertionError, RuntimeError) as error:
-            raise ValueError(f"Unable to initialize model on cpu: {error}") from error
-
-    if device not in {"cpu", "cuda"}:
-        raise ValueError("device must be 'auto', 'cpu', or 'cuda'")
-
-    if device == "cuda" and not torch.cuda.is_available():
-        raise ValueError("CUDA was requested but is not available")
-    try:
-        return EnsembleModel().to(device)
-    except (AssertionError, RuntimeError) as error:
-        raise ValueError(f"Unable to initialize model on {device}: {error}") from error

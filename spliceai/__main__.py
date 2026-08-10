@@ -5,12 +5,13 @@ import signal
 from pathlib import Path
 
 import pysam
+import torch
 from pyfaidx import Fasta
 from tqdm import tqdm
 
 from spliceai import __version__, logger
 from spliceai.annotation import AnnotationFormatError, TranscriptAnnotations
-from spliceai.model import configure_model_device, configure_model_threads
+from spliceai.model import EnsembleModel
 from spliceai.scoring import DEFAULT_BATCH_SIZE, SplicingScorer
 
 try:
@@ -147,6 +148,25 @@ def get_options():
     )
     args = parser.parse_args()
 
+    # Set PyTorch threads
+    if args.threads is not None:
+        torch.set_num_threads(args.threads)
+
+    # Set PyTorch device
+    if args.device == "auto":
+        args.device = "cuda" if torch.cuda.is_available() else "cpu"
+    elif args.device == "cuda":
+        if torch.cuda.is_available():
+            args.device = "cuda"
+        else:
+            logger.warning("CUDA is not available, falling back to CPU")
+            args.device = "cpu"
+    elif args.device == "cpu":
+        args.device = "cpu"
+    else:
+        logger.warning("Invalid device specified, falling back to CUDA if available")
+        args.device = "cuda" if torch.cuda.is_available() else "cpu"
+
     return args
 
 
@@ -170,11 +190,10 @@ def main():
     output = None
     ref_fasta = None
     try:
-        configure_model_threads(args.threads)
         vcf = pysam.VariantFile(args.I)
         header = vcf.header
         add_spliceai_header(header, args.overwrite_existing)
-        model = configure_model_device(args.device)
+        model = EnsembleModel().to(args.device)
         transcript_annotations = TranscriptAnnotations(args.A)
         ref_fasta = Fasta(args.R, rebuild=False)
         scorer = SplicingScorer(
