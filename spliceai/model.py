@@ -18,9 +18,9 @@ from spliceai import name
 
 __all__ = ["EnsembleSpliceAIModel", "CONTEXT", "HALF_CONTEXT"]
 
-_CHANNELS = 32
 CONTEXT = 10000
 HALF_CONTEXT = CONTEXT // 2
+_CHANNELS = 32
 _BATCH_NORM_EPSILON = 0.001
 _SKIP_CONNECTION_SPECS = (
     {"kernel_size": 11, "dilation": 1},
@@ -162,7 +162,7 @@ class SpliceAIModel(nn.Module):
         x_skip = None
         for m in self.stem:
             x, x_skip = m(x, x_skip)
-        x_skip = x_skip[:, :, _HALF_CONTEXT : -_HALF_CONTEXT]
+        x_skip = x_skip[:, :, HALF_CONTEXT : -HALF_CONTEXT]
         return F.softmax(self.output_conv(x_skip), dim=1)
 
 
@@ -197,7 +197,7 @@ class EnsembleSpliceAIModel(nn.Module):
             raise TypeError("inputs must be a torch.Tensor")
         if inputs.ndim != 3 or inputs.shape[-1] != 4:
             raise ValueError("inputs must have shape (batch, length, 4)")
-        if inputs.shape[1] <= _CONTEXT:
+        if inputs.shape[1] <= CONTEXT:
             raise ValueError("input length must be greater than 10000")
 
         channels_first = inputs.transpose(1, 2)
