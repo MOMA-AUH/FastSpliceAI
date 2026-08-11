@@ -99,8 +99,9 @@ class SpliceAIModel(nn.Module):
             try:
                 return np.asarray(weights[dataset_name])
             except KeyError as error:
-                raise ValueError(f"Keras weight file is missing {dataset_name}") from error
-
+                raise ValueError(
+                    f"Keras weight file is missing {dataset_name}"
+                ) from error
 
         def copy_tensor(target, value, dataset_name):
             if tuple(value.shape) != tuple(target.shape):
@@ -113,9 +114,7 @@ class SpliceAIModel(nn.Module):
 
         model = cls()
         conv_names = (f"conv1d_{i}" for i in itertools.count(1))
-        batch_norm_names = (
-            f"batch_normalization_{i}" for i in itertools.count(1)
-        )
+        batch_norm_names = (f"batch_normalization_{i}" for i in itertools.count(1))
 
         try:
             with h5py.File(path, "r") as weights:
@@ -124,9 +123,9 @@ class SpliceAIModel(nn.Module):
                         layer_name = next(conv_names)
                         copy_tensor(
                             layer.weight,
-                            read_keras_array(
-                                weights, layer_name, "kernel"
-                            ).transpose(2, 1, 0),
+                            read_keras_array(weights, layer_name, "kernel").transpose(
+                                2, 1, 0
+                            ),
                             f"{layer_name}/kernel",
                         )
                         copy_tensor(
@@ -145,9 +144,7 @@ class SpliceAIModel(nn.Module):
                         for variable_name, target in variables.items():
                             copy_tensor(
                                 target,
-                                read_keras_array(
-                                    weights, layer_name, variable_name
-                                ),
+                                read_keras_array(weights, layer_name, variable_name),
                                 f"{layer_name}/{variable_name}",
                             )
         except OSError as error:
@@ -162,7 +159,7 @@ class SpliceAIModel(nn.Module):
         x_skip = None
         for m in self.stem:
             x, x_skip = m(x, x_skip)
-        x_skip = x_skip[:, :, HALF_CONTEXT : -HALF_CONTEXT]
+        x_skip = x_skip[:, :, HALF_CONTEXT:-HALF_CONTEXT]
         return F.softmax(self.output_conv(x_skip), dim=1)
 
 

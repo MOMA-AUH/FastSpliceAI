@@ -35,7 +35,9 @@ _OUTPUT_MODES = {"b": "wb", "v": "w", "z": "wz"}
 
 def configure_process():
     """Configure command-line logging and interrupt handling."""
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
     signal.signal(signal.SIGINT, signal.default_int_handler)
 
 
