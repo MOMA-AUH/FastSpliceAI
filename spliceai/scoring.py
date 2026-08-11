@@ -168,7 +168,7 @@ class SplicingScorer:
 
         ref_len = len(record.ref)
         midpoint = self.window_width // 2
-        if sequence[midpoint : midpoint + ref_len].upper() != record.ref:
+        if sequence[midpoint : midpoint + ref_len].casefold() != record.ref.casefold():
             logger.warning(f"Skipping record (ref issue): {record}".strip())
             return _PreparedRecord(empty_context, iter(()))
 
