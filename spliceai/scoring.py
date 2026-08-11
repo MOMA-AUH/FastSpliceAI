@@ -9,9 +9,8 @@ from pyfaidx import Fasta
 
 from spliceai import logger
 from spliceai.annotation import TranscriptAnnotations
-from spliceai.encoding import one_hot_encode
 from spliceai.model import EnsembleSpliceAIModel, CONTEXT, HALF_CONTEXT
-from spliceai.utils import normalise_chrom
+from spliceai.utils import normalise_chrom, one_hot_encode
 
 DEFAULT_DISTANCE = 50
 DEFAULT_MASK = 0
