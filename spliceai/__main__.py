@@ -193,7 +193,8 @@ def get_options():
         "--output-type",
         default="v",
         choices=tuple(_OUTPUT_MODES),
-        help="output type: b compressed BCF, z compressed VCF, or v uncompressed VCF",
+        help="output type: b compressed BCF, z compressed VCF, or v uncompressed VCF; "
+        "defaults to v",
     )
     parser.add_argument(
         "-R",
