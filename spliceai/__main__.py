@@ -190,13 +190,6 @@ def get_options():
         help="path to the output variant file, defaults to standard out",
     )
     parser.add_argument(
-        "--output-type",
-        default="v",
-        choices=tuple(_OUTPUT_MODES),
-        help="output type: b compressed BCF, z compressed VCF, or v uncompressed VCF; "
-        "defaults to v",
-    )
-    parser.add_argument(
         "-R",
         metavar="reference",
         required=True,
@@ -231,13 +224,24 @@ def get_options():
         f"unannotated acceptor/donor loss, defaults to {DEFAULT_MASK}",
     )
     parser.add_argument(
-        "-B",
-        "--batch-size",
-        metavar="batch_size",
-        default=DEFAULT_BATCH_SIZE,
-        type=positive_int,
-        help="maximum number of model inputs per inference batch, defaults to "
-        f"{DEFAULT_BATCH_SIZE}",
+        "--output-type",
+        default="v",
+        choices=tuple(_OUTPUT_MODES),
+        help="output type: b compressed BCF, z compressed VCF, or v uncompressed VCF; "
+        "defaults to v",
+    )
+    parser.add_argument(
+        "--write-index",
+        nargs="?",
+        const="csi",
+        choices=("csi", "tbi"),
+        metavar="FMT",
+        help="index compressed path output; optional FMT is csi (default) or tbi",
+    )
+    parser.add_argument(
+        "--overwrite-existing",
+        action="store_true",
+        help="replace existing SpliceAI header and record annotations",
     )
     parser.add_argument(
         "--threads",
@@ -246,6 +250,15 @@ def get_options():
         type=positive_int,
         help="number of PyTorch CPU inference threads, defaults to PyTorch's "
         "current setting",
+    )
+    parser.add_argument(
+        "-B",
+        "--batch-size",
+        metavar="batch_size",
+        default=DEFAULT_BATCH_SIZE,
+        type=positive_int,
+        help="maximum number of model inputs per inference batch, defaults to "
+        f"{DEFAULT_BATCH_SIZE}",
     )
     parser.add_argument(
         "--device",
@@ -257,19 +270,6 @@ def get_options():
         "--bfloat16",
         action="store_true",
         help="use bfloat16 precision for inference, if available",
-    )
-    parser.add_argument(
-        "--overwrite-existing",
-        action="store_true",
-        help="replace existing SpliceAI header and record annotations",
-    )
-    parser.add_argument(
-        "--write-index",
-        nargs="?",
-        const="csi",
-        choices=("csi", "tbi"),
-        metavar="FMT",
-        help="index compressed path output; optional FMT is csi (default) or tbi",
     )
     parser.add_argument(
         "--allow-fallback",
