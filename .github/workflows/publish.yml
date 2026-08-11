@@ -1,0 +1,144 @@
+name: Publish Conda Package
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-conda-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-test:
+    name: Build And Test Conda Package
+    if: github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    outputs:
+      project_version: ${{ steps.version.outputs.project_version }}
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Miniforge
+        uses: conda-incubator/setup-miniconda@v4
+        with:
+          miniforge-version: latest
+          activate-environment: fastspliceai-build
+          python-version: "3.13"
+          channels: conda-forge,bioconda
+          channel-priority: strict
+          use-mamba: true
+
+      - name: Install build tooling
+        shell: bash -l {0}
+        run: conda install --yes conda-build
+
+      - name: Validate release version
+        id: version
+        shell: bash -l {0}
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          PROJECT_VERSION="$(python - <<'PY'
+          import tomllib
+
+          with open("pyproject.toml", "rb") as pyproject_file:
+              print(tomllib.load(pyproject_file)["project"]["version"])
+          PY
+          )"
+          EXPECTED_TAG="v${PROJECT_VERSION}"
+          if [[ "$RELEASE_TAG" != "$EXPECTED_TAG" ]]; then
+            echo "Release tag '$RELEASE_TAG' does not match project version '$EXPECTED_TAG'"
+            exit 1
+          fi
+          echo "project_version=${PROJECT_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test package
+        id: package
+        shell: bash -l {0}
+        env:
+          PROJECT_VERSION: ${{ steps.version.outputs.project_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          PKG_PATH="$(conda-build conda-recipe/ --output-folder "$PWD/dist" --output)"
+          conda-build conda-recipe/ --output-folder "$PWD/dist"
+          if [[ ! -f "$PKG_PATH" ]]; then
+            echo "Expected Conda package does not exist: $PKG_PATH"
+            exit 1
+          fi
+          PKG_NAME="$(basename "$PKG_PATH")"
+          case "$PKG_NAME" in
+            "fastspliceai-${PROJECT_VERSION}-"*.conda|"fastspliceai-${PROJECT_VERSION}-"*.tar.bz2) ;;
+            *)
+              echo "Conda package '$PKG_NAME' does not contain expected version '$PROJECT_VERSION'"
+              exit 1
+              ;;
+          esac
+          echo "pkg_path=${PKG_PATH}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Conda artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: fastspliceai-conda-${{ steps.version.outputs.project_version }}
+          path: ${{ steps.package.outputs.pkg_path }}
+          if-no-files-found: error
+
+  publish-conda:
+    name: Publish To MOMA-AUH
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    environment:
+      name: conda
+      url: https://anaconda.org/MOMA-AUH/fastspliceai
+
+    steps:
+      - name: Download Conda artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: fastspliceai-conda-${{ needs.build-and-test.outputs.project_version }}
+          path: dist
+
+      - name: Set up Miniforge
+        uses: conda-incubator/setup-miniconda@v4
+        with:
+          miniforge-version: latest
+          activate-environment: fastspliceai-publish
+          python-version: "3.13"
+          channels: conda-forge
+          channel-priority: strict
+          use-mamba: true
+
+      - name: Install upload tooling
+        shell: bash -l {0}
+        run: conda install --yes anaconda-client
+
+      - name: Publish package to MOMA-AUH
+        shell: bash -l {0}
+        env:
+          ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_API_TOKEN }}
+          ANACONDA_OWNER: MOMA-AUH
+        run: |
+          set -euo pipefail
+          : "${ANACONDA_API_TOKEN:?ANACONDA_API_TOKEN is not configured}"
+          mapfile -d '' PACKAGES < <(
+            find dist -type f \( -name "*.conda" -o -name "*.tar.bz2" \) -print0
+          )
+          if [[ "${#PACKAGES[@]}" -ne 1 ]]; then
+            echo "Expected exactly one Conda package, found ${#PACKAGES[@]}"
+            exit 1
+          fi
+          anaconda -t "$ANACONDA_API_TOKEN" upload \
+            --skip-existing \
+            --user "$ANACONDA_OWNER" \
+            --label main \
+            "${PACKAGES[0]}"
