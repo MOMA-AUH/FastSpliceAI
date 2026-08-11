@@ -19,11 +19,18 @@ from spliceai.__main__ import (
     main,
     paths_refer_to_same_file,
     positive_int,
+    validate_index_options,
+    variant_output_mode,
 )
 from spliceai.scoring import DEFAULT_BATCH_SIZE
 
 
 class TestOptions(unittest.TestCase):
+    def test_requires_explicit_output_type(self):
+        argv = ["spliceai", "-R", "reference.fa", "-A", "grch37"]
+        with patch.object(sys, "argv", argv), self.assertRaises(SystemExit):
+            get_options()
+
     def test_configures_process_only_when_cli_runs(self):
         with (
             patch("spliceai.__main__.logging.basicConfig") as configure_logging,
@@ -38,7 +45,15 @@ class TestOptions(unittest.TestCase):
         configure_signal.assert_called_once()
 
     def test_batch_size_defaults_to_eight(self):
-        argv = ["spliceai", "-R", "reference.fa", "-A", "grch37"]
+        argv = [
+            "spliceai",
+            "-R",
+            "reference.fa",
+            "-A",
+            "grch37",
+            "--output-type",
+            "v",
+        ]
 
         with (
             patch.object(sys, "argv", argv),
@@ -58,6 +73,8 @@ class TestOptions(unittest.TestCase):
             "reference.fa",
             "-A",
             "grch37",
+            "--output-type",
+            "v",
             "--batch-size",
             "32",
         ]
@@ -87,6 +104,8 @@ class TestOptions(unittest.TestCase):
             "reference.fa",
             "-A",
             "grch37",
+            "--output-type",
+            "v",
             "--threads",
             "32",
         ]
@@ -108,6 +127,8 @@ class TestOptions(unittest.TestCase):
             "reference.fa",
             "-A",
             "grch37",
+            "--output-type",
+            "v",
             "--device",
             "cpu",
         ]
@@ -121,13 +142,15 @@ class TestOptions(unittest.TestCase):
         self.assertEqual(args.device, "cpu")
         cuda_available.assert_not_called()
 
-    def test_unavailable_explicit_cuda_falls_back_to_cpu(self):
+    def test_preserves_explicit_cuda_request_for_model_loading(self):
         argv = [
             "spliceai",
             "-R",
             "reference.fa",
             "-A",
             "grch37",
+            "--output-type",
+            "v",
             "--device",
             "cuda",
         ]
@@ -137,6 +160,22 @@ class TestOptions(unittest.TestCase):
             args = get_options()
 
         self.assertEqual(args.device, "cuda")
+
+    def test_preserves_auto_device_request_for_model_loading(self):
+        argv = [
+            "spliceai",
+            "-R",
+            "reference.fa",
+            "-A",
+            "grch37",
+            "--output-type",
+            "v",
+        ]
+
+        with patch.object(sys, "argv", argv):
+            args = get_options()
+
+        self.assertEqual(args.device, "auto")
 
     def test_detects_equivalent_input_and_output_paths(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -162,6 +201,41 @@ class TestOptions(unittest.TestCase):
 
         add_spliceai_header(header, overwrite_existing=True)
         self.assertIn(f"SpliceAIv{__version__}", header.info["SpliceAI"].description)
+
+    def test_selects_output_mode_from_explicit_type(self):
+        self.assertEqual(variant_output_mode("v"), "w")
+        self.assertEqual(variant_output_mode("z"), "wz")
+        self.assertEqual(variant_output_mode("b"), "wb")
+
+    def test_write_index_defaults_to_csi_and_accepts_tbi(self):
+        base_argv = [
+            "spliceai",
+            "-R",
+            "reference.fa",
+            "-A",
+            "grch37",
+            "--output-type",
+            "z",
+        ]
+        with patch.object(sys, "argv", [*base_argv, "--write-index"]):
+            self.assertEqual(get_options().write_index, "csi")
+        with patch.object(sys, "argv", [*base_argv, "--write-index=tbi"]):
+            self.assertEqual(get_options().write_index, "tbi")
+
+    def test_validates_index_compatibility(self):
+        validate_index_options("output.vcf.gz", "z", "csi")
+        validate_index_options("output.vcf.gz", "z", "tbi")
+        validate_index_options("output.bcf", "b", "csi")
+        cases = (
+            (sys.stdout, "z", "csi", "filesystem output path"),
+            ("-", "z", "csi", "standard output"),
+            ("output.vcf", "v", "csi", "compressed"),
+            ("output.bcf", "b", "tbi", "only supported"),
+        )
+        for output, output_type, index_format, message in cases:
+            with self.subTest(output=output, output_type=output_type):
+                with self.assertRaisesRegex(ValueError, message):
+                    validate_index_options(output, output_type, index_format)
 
 
 class TestProgressLogging(unittest.TestCase):
@@ -235,6 +309,15 @@ class TestProgressLogging(unittest.TestCase):
 
 
 class TestMain(unittest.TestCase):
+    @staticmethod
+    def write_input_vcf(path):
+        path.write_text(
+            "##fileformat=VCFv4.2\n"
+            "##contig=<ID=1,length=100>\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+            "1\t10\t.\tA\tC\t.\tPASS\t.\n"
+        )
+
     def test_closes_resources_after_success(self):
         args = SimpleNamespace(
             I="input.vcf",
@@ -246,7 +329,9 @@ class TestMain(unittest.TestCase):
             batch_size=8,
             threads=32,
             device="cpu",
+            output_type="v",
             overwrite_existing=False,
+            write_index=None,
         )
         input_vcf = MagicMock()
         input_vcf.header = MagicMock()
@@ -260,6 +345,10 @@ class TestMain(unittest.TestCase):
         with (
             patch("spliceai.__main__.configure_process"),
             patch("spliceai.__main__.get_options", return_value=args),
+            patch(
+                "spliceai.__main__.prepare_output",
+                return_value=(args.O, None),
+            ),
             patch(
                 "spliceai.__main__.pysam.VariantFile",
                 side_effect=(input_vcf, output_vcf),
@@ -279,9 +368,9 @@ class TestMain(unittest.TestCase):
             self.assertEqual(main(), 0)
 
         model_type.assert_called_once_with()
-        model.to.assert_called_once_with("cpu")
+        model.to_device.assert_called_once_with("cpu")
         scorer_type.assert_called_once_with(
-            model=model.to.return_value,
+            model=model.to_device.return_value,
             transcript_annotations=annotations,
             ref_fasta=reference,
             distance=50,
@@ -303,9 +392,13 @@ class TestMain(unittest.TestCase):
             batch_size=8,
             threads=None,
             device="cuda",
+            output_type="v",
             overwrite_existing=False,
+            write_index=None,
         )
         input_vcf = MagicMock()
+        model = MagicMock()
+        model.to_device.side_effect = ValueError("CUDA unavailable")
 
         with (
             patch("spliceai.__main__.configure_process"),
@@ -316,12 +409,13 @@ class TestMain(unittest.TestCase):
             ) as variant_file,
             patch(
                 "spliceai.__main__.EnsembleSpliceAIModel",
-                side_effect=ValueError("CUDA unavailable"),
+                return_value=model,
             ),
         ):
             self.assertEqual(main(), 1)
 
         variant_file.assert_called_once_with("input.vcf")
+        model.to_device.assert_called_once_with("cuda")
         input_vcf.close.assert_called_once_with()
 
     def test_rejects_same_input_and_output_before_opening(self):
@@ -335,7 +429,9 @@ class TestMain(unittest.TestCase):
             batch_size=8,
             threads=None,
             device="cpu",
+            output_type="v",
             overwrite_existing=False,
+            write_index=None,
         )
         with (
             patch("spliceai.__main__.configure_process"),
@@ -356,7 +452,9 @@ class TestMain(unittest.TestCase):
             batch_size=8,
             threads=None,
             device="auto",
+            output_type="v",
             overwrite_existing=True,
+            write_index=None,
         )
         header = pysam.VariantHeader()
         header.add_line(
@@ -375,6 +473,10 @@ class TestMain(unittest.TestCase):
             patch("spliceai.__main__.configure_process"),
             patch("spliceai.__main__.get_options", return_value=args),
             patch(
+                "spliceai.__main__.prepare_output",
+                return_value=(args.O, None),
+            ),
+            patch(
                 "spliceai.__main__.pysam.VariantFile",
                 side_effect=(input_vcf, output_vcf),
             ),
@@ -392,3 +494,188 @@ class TestMain(unittest.TestCase):
         self.assertIn(f"SpliceAIv{__version__}", header.info["SpliceAI"].description)
         output_vcf.write.assert_called_once_with(record)
         reference.close.assert_called_once_with()
+
+    def test_preserves_existing_output_when_scoring_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            input_path = directory / "input.vcf"
+            output_path = directory / "output.vcf"
+            self.write_input_vcf(input_path)
+            output_path.write_text("existing output\n")
+            args = SimpleNamespace(
+                I=input_path,
+                O=output_path,
+                R="reference.fa",
+                A="grch38",
+                D=50,
+                M=0,
+                batch_size=8,
+                threads=None,
+                device="cpu",
+                output_type="v",
+                overwrite_existing=False,
+                write_index=None,
+            )
+
+            def fail_after_first_record(records):
+                for record in records:
+                    yield record, []
+                    raise ValueError("scoring failed")
+
+            scorer = MagicMock()
+            scorer.score_batch.side_effect = fail_after_first_record
+            with (
+                patch("spliceai.__main__.configure_process"),
+                patch("spliceai.__main__.get_options", return_value=args),
+                patch("spliceai.__main__.EnsembleSpliceAIModel", return_value=MagicMock()),
+                patch("spliceai.__main__.TranscriptAnnotations"),
+                patch("spliceai.__main__.Fasta", return_value=MagicMock()),
+                patch("spliceai.__main__.SplicingScorer", return_value=scorer),
+            ):
+                self.assertEqual(main(), 1)
+
+            self.assertEqual(output_path.read_text(), "existing output\n")
+            self.assertEqual(list(directory.glob(".output.vcf.*.tmp")), [])
+
+    def test_preserves_existing_output_when_indexing_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            input_path = directory / "input.vcf"
+            output_path = directory / "output.vcf.gz"
+            index_path = Path(f"{output_path}.csi")
+            self.write_input_vcf(input_path)
+            output_path.write_text("existing output\n")
+            index_path.write_text("existing index\n")
+            args = SimpleNamespace(
+                I=input_path,
+                O=output_path,
+                R="reference.fa",
+                A="grch38",
+                D=50,
+                M=0,
+                batch_size=8,
+                threads=None,
+                device="cpu",
+                output_type="z",
+                overwrite_existing=False,
+                write_index="csi",
+            )
+            scorer = MagicMock()
+            scorer.score_batch.side_effect = lambda records: (
+                (record, []) for record in records
+            )
+            with (
+                patch("spliceai.__main__.configure_process"),
+                patch("spliceai.__main__.get_options", return_value=args),
+                patch("spliceai.__main__.EnsembleSpliceAIModel", return_value=MagicMock()),
+                patch("spliceai.__main__.TranscriptAnnotations"),
+                patch("spliceai.__main__.Fasta", return_value=MagicMock()),
+                patch("spliceai.__main__.SplicingScorer", return_value=scorer),
+                patch(
+                    "spliceai.__main__.prepare_index",
+                    side_effect=pysam.SamtoolsError("indexing failed"),
+                ),
+            ):
+                self.assertEqual(main(), 1)
+
+            self.assertEqual(output_path.read_text(), "existing output\n")
+            self.assertEqual(index_path.read_text(), "existing index\n")
+            self.assertEqual(list(directory.glob(".*.tmp")), [])
+
+    def test_writes_readable_output_formats_atomically(self):
+        cases = (
+            (".vcf", "v", b"##"),
+            (".vcf.gz", "z", b"\x1f\x8b"),
+            (".bcf", "b", b"\x1f\x8b"),
+            (".bcf.gz", "b", b"\x1f\x8b"),
+            (".bcf.bgz", "b", b"\x1f\x8b"),
+        )
+        for suffix, output_type, expected_prefix in cases:
+            with (
+                self.subTest(suffix=suffix),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                directory = Path(directory)
+                input_path = directory / "input.vcf"
+                output_path = directory / f"output{suffix}"
+                self.write_input_vcf(input_path)
+                args = SimpleNamespace(
+                    I=input_path,
+                    O=output_path,
+                    R="reference.fa",
+                    A="grch38",
+                    D=50,
+                    M=0,
+                    batch_size=8,
+                    threads=None,
+                    device="cpu",
+                    output_type=output_type,
+                    overwrite_existing=False,
+                    write_index=None,
+                )
+                scorer = MagicMock()
+                scorer.score_batch.side_effect = lambda records: (
+                    (record, []) for record in records
+                )
+                with (
+                    patch("spliceai.__main__.configure_process"),
+                    patch("spliceai.__main__.get_options", return_value=args),
+                    patch("spliceai.__main__.EnsembleSpliceAIModel", return_value=MagicMock()),
+                    patch("spliceai.__main__.TranscriptAnnotations"),
+                    patch("spliceai.__main__.Fasta", return_value=MagicMock()),
+                    patch("spliceai.__main__.SplicingScorer", return_value=scorer),
+                ):
+                    self.assertEqual(main(), 0)
+
+                self.assertEqual(output_path.read_bytes()[:2], expected_prefix)
+                with pysam.VariantFile(output_path) as output_vcf:
+                    self.assertEqual(len(list(output_vcf)), 1)
+                self.assertEqual(list(directory.glob(f".{output_path.name}.*.tmp")), [])
+
+    def test_writes_requested_indexes(self):
+        cases = (
+            ("output.vcf.gz", "z", "csi"),
+            ("output.vcf.gz", "z", "tbi"),
+            ("output.bcf", "b", "csi"),
+        )
+        for output_name, output_type, index_format in cases:
+            with (
+                self.subTest(output_type=output_type, index_format=index_format),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                directory = Path(directory)
+                input_path = directory / "input.vcf"
+                output_path = directory / output_name
+                self.write_input_vcf(input_path)
+                args = SimpleNamespace(
+                    I=input_path,
+                    O=output_path,
+                    R="reference.fa",
+                    A="grch38",
+                    D=50,
+                    M=0,
+                    batch_size=8,
+                    threads=None,
+                    device="cpu",
+                    output_type=output_type,
+                    overwrite_existing=False,
+                    write_index=index_format,
+                )
+                scorer = MagicMock()
+                scorer.score_batch.side_effect = lambda records: (
+                    (record, []) for record in records
+                )
+                with (
+                    patch("spliceai.__main__.configure_process"),
+                    patch("spliceai.__main__.get_options", return_value=args),
+                    patch("spliceai.__main__.EnsembleSpliceAIModel", return_value=MagicMock()),
+                    patch("spliceai.__main__.TranscriptAnnotations"),
+                    patch("spliceai.__main__.Fasta", return_value=MagicMock()),
+                    patch("spliceai.__main__.SplicingScorer", return_value=scorer),
+                ):
+                    self.assertEqual(main(), 0)
+
+                index_path = Path(f"{output_path}.{index_format}")
+                self.assertTrue(index_path.is_file())
+                with pysam.VariantFile(output_path) as output_vcf:
+                    self.assertEqual(len(list(output_vcf.fetch("1", 0, 100))), 1)

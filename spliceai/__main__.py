@@ -2,12 +2,14 @@ import argparse
 import logging
 import os
 import signal
+import tempfile
 import time
 from pathlib import Path
 
 import pysam
 import torch
 from pyfaidx import Fasta
+from pysam import bcftools
 
 from spliceai import __version__, logger
 from spliceai.annotation import AnnotationFormatError, TranscriptAnnotations
@@ -28,6 +30,7 @@ except ImportError:
 
 
 _PROGRESS_LOG_INTERVAL = 30.0
+_OUTPUT_MODES = {"b": "wb", "v": "w", "z": "wz"}
 
 
 def configure_process():
@@ -48,6 +51,68 @@ def paths_refer_to_same_file(input_value, output_value):
         return os.path.samefile(input_path, output_path)
     except (FileNotFoundError, OSError):
         return Path(input_path).resolve() == Path(output_path).resolve()
+
+
+def variant_output_mode(output_type):
+    """Return the pysam write mode for a bcftools-style output type."""
+    return _OUTPUT_MODES[output_type]
+
+
+def prepare_output(output_value):
+    """Return a write target and optional atomic destination for CLI output."""
+    try:
+        output_path = os.fspath(output_value)
+    except TypeError:
+        return output_value, None
+    if os.fsdecode(output_path) == "-":
+        return output_value, None
+
+    destination = Path(output_path)
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+    )
+    os.close(descriptor)
+    return temporary_path, destination
+
+
+def validate_index_options(output_value, output_type, index_format):
+    """Validate whether the requested output can be indexed."""
+    if index_format is None:
+        return
+    try:
+        output_path = os.fsdecode(os.fspath(output_value))
+    except TypeError as error:
+        raise ValueError("--write-index requires a filesystem output path") from error
+    if output_path == "-":
+        raise ValueError("--write-index cannot be used when writing to standard output")
+    if output_type == "v":
+        raise ValueError("--write-index requires compressed VCF or BCF output")
+    if output_type == "b" and index_format == "tbi":
+        raise ValueError("TBI indexes are only supported for compressed VCF output")
+
+
+def prepare_index(output_path, output_destination, output_type, index_format):
+    """Create an index for a completed temporary output file."""
+    index_destination = Path(f"{output_destination}.{index_format}")
+    descriptor, temporary_index = tempfile.mkstemp(
+        prefix=f".{index_destination.name}.",
+        suffix=".tmp",
+        dir=index_destination.parent,
+    )
+    os.close(descriptor)
+    arguments = ["-f", "-o", temporary_index]
+    if index_format == "tbi":
+        arguments.append("-t")
+    arguments.append(os.fspath(output_path))
+    try:
+        bcftools.index(*arguments)
+    except BaseException:
+        try:
+            os.unlink(temporary_index)
+        except FileNotFoundError:
+            pass
+        raise
+    return temporary_index, index_destination
 
 
 def add_spliceai_header(header, overwrite_existing=False):
@@ -120,7 +185,13 @@ def get_options():
         metavar="output",
         nargs="?",
         default=std_out,
-        help="path to the output VCF file, defaults to standard out",
+        help="path to the output variant file, defaults to standard out",
+    )
+    parser.add_argument(
+        "--output-type",
+        required=True,
+        choices=tuple(_OUTPUT_MODES),
+        help="output type: b compressed BCF, z compressed VCF, or v uncompressed VCF",
     )
     parser.add_argument(
         "-R",
@@ -184,6 +255,14 @@ def get_options():
         action="store_true",
         help="replace existing SpliceAI header and record annotations",
     )
+    parser.add_argument(
+        "--write-index",
+        nargs="?",
+        const="csi",
+        choices=("csi", "tbi"),
+        metavar="FMT",
+        help="index compressed path output; optional FMT is csi (default) or tbi",
+    )
     args = parser.parse_args()
 
     # Set PyTorch threads
@@ -200,18 +279,26 @@ def main():
     if None in [args.I, args.O, args.D, args.M]:
         logger.error(
             "Usage: spliceai [-h] [-I [input]] [-O [output]] "
-            "-R reference -A annotation "
+            "--output-type {b,v,z} -R reference -A annotation "
             "[-D [distance]] [-M [mask]] [-B batch_size] [--threads threads] "
-            "[--device {auto,cpu,cuda}] [--overwrite-existing]"
+            "[--device {auto,cpu,cuda}] [--overwrite-existing] "
+            "[--write-index [FMT]]"
         )
         return 2
     if paths_refer_to_same_file(args.I, args.O):
         logger.error("Input and output must refer to different files")
         return 2
+    try:
+        validate_index_options(args.O, args.output_type, args.write_index)
+    except ValueError as error:
+        logger.error(error)
+        return 2
 
     vcf = None
     output = None
     ref_fasta = None
+    temporary_output = None
+    temporary_index = None
     try:
         vcf = pysam.VariantFile(args.I)
         header = vcf.header
@@ -230,7 +317,12 @@ def main():
             mask=args.M,
             batch_size=args.batch_size,
         )
-        output = pysam.VariantFile(args.O, mode="w", header=header)
+        output_target, output_destination = prepare_output(args.O)
+        if output_destination is not None:
+            temporary_output = output_target
+        output = pysam.VariantFile(
+            output_target, mode=variant_output_mode(args.output_type), header=header
+        )
 
         logger.info("Initializing scoring")
         for record, scores in log_scoring_progress(scorer.score_batch(vcf)):
@@ -239,7 +331,28 @@ def main():
             if scores:
                 record.info["SpliceAI"] = scores
             output.write(record)
-    except (AnnotationFormatError, OSError, ValueError) as error:
+        output.close()
+        output = None
+        if output_destination is not None:
+            if args.write_index is not None:
+                temporary_index, index_destination = prepare_index(
+                    temporary_output,
+                    output_destination,
+                    args.output_type,
+                    args.write_index,
+                )
+            os.replace(temporary_output, output_destination)
+            temporary_output = None
+            if temporary_index is not None:
+                os.replace(temporary_index, index_destination)
+                temporary_index = None
+    except (
+        AnnotationFormatError,
+        OSError,
+        pysam.SamtoolsError,
+        RuntimeError,
+        ValueError,
+    ) as error:
         logger.error(error)
         return 1
     except KeyboardInterrupt:
@@ -251,7 +364,20 @@ def main():
         if vcf is not None:
             vcf.close()
         if output is not None:
-            output.close()
+            try:
+                output.close()
+            except (OSError, ValueError):
+                pass
+        if temporary_output is not None:
+            try:
+                os.unlink(temporary_output)
+            except FileNotFoundError:
+                pass
+        if temporary_index is not None:
+            try:
+                os.unlink(temporary_index)
+            except FileNotFoundError:
+                pass
 
     return 0
 
