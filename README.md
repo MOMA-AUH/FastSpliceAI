@@ -12,9 +12,9 @@ Purchase of AI scores and models for commercial use is available at [AI_licensin
 ### Installation
 SpliceAI supports Python 3.10 through 3.13.
 
-SpliceAI can be installed from the [github repository](https://github.com/jakobjn/FastSpliceAI.git):
+SpliceAI can be installed from the [github repository](https://github.com/MOMA-AUH/FastSpliceAI.git):
 ```sh
-pip install git+https://github.com/jakobjn/FastSpliceAI.git
+pip install git+https://github.com/MOMA-AUH/FastSpliceAI.git
 ```
 
 SpliceAI uses PyTorch for inference. The five original Keras `.h5` model files
