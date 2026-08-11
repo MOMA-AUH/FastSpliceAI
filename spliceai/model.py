@@ -14,7 +14,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from spliceai import name, logger
+from spliceai import name
 
 __all__ = ["EnsembleSpliceAIModel", "CONTEXT", "HALF_CONTEXT"]
 
@@ -189,21 +189,6 @@ class EnsembleSpliceAIModel(nn.Module):
         self.requires_grad_(False)
         self.eval()
 
-    def to_device(self, device: str) -> "EnsembleSpliceAIModel":
-        if device == "auto":
-            if not torch.cuda.is_available():
-                return self.to("cpu")
-            try:
-                return self.to("cuda")
-            except RuntimeError as error:
-                logger.warning(
-                    "CUDA initialization failed (%s); falling back to CPU", error
-                )
-                return self.to("cpu")
-        if device == "cuda" and not torch.cuda.is_available():
-            raise ValueError("CUDA was requested but is not available")
-        return self.to(device)
-
     def forward(self, inputs):
         if not isinstance(inputs, torch.Tensor):
             raise TypeError("inputs must be a torch.Tensor")
@@ -221,8 +206,14 @@ class EnsembleSpliceAIModel(nn.Module):
     def infer(self, inputs):
         """Return NumPy predictions for channels-last NumPy inputs."""
         parameter = next(self.parameters())
-        tensor = torch.as_tensor(np.asarray(inputs), dtype=parameter.dtype)
-        tensor = tensor.to(device=parameter.device)
-        with torch.inference_mode():
+        tensor = torch.as_tensor(np.asarray(inputs)).to(device=parameter.device)
+        with (
+            torch.inference_mode(),
+            torch.autocast(
+                device_type=parameter.device.type,
+                dtype=parameter.dtype,
+                enabled=parameter.dtype == torch.bfloat16,
+            ),
+        ):
             predictions = self(tensor)
-        return predictions.detach().cpu().numpy()
+        return predictions.detach().cpu().to(torch.float32).numpy()

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
 import pysam
+import torch
 
 from spliceai import __version__
 from spliceai.__main__ import (
@@ -26,10 +27,15 @@ from spliceai.scoring import DEFAULT_BATCH_SIZE
 
 
 class TestOptions(unittest.TestCase):
-    def test_requires_explicit_output_type(self):
+    def test_output_type_defaults_to_uncompressed_vcf(self):
         argv = ["spliceai", "-R", "reference.fa", "-A", "grch37"]
-        with patch.object(sys, "argv", argv), self.assertRaises(SystemExit):
-            get_options()
+        with (
+            patch.object(sys, "argv", argv),
+            patch("spliceai.__main__.torch.cuda.is_available", return_value=False),
+        ):
+            args = get_options()
+
+        self.assertEqual(args.output_type, "v")
 
     def test_configures_process_only_when_cli_runs(self):
         with (
@@ -63,7 +69,9 @@ class TestOptions(unittest.TestCase):
 
         self.assertEqual(args.batch_size, DEFAULT_BATCH_SIZE)
         self.assertIsNone(args.threads)
-        self.assertEqual(args.device, "auto")
+        self.assertEqual(args.device, "cpu")
+        self.assertFalse(args.bfloat16)
+        self.assertFalse(args.allow_fallback)
         self.assertFalse(args.overwrite_existing)
 
     def test_accepts_explicit_batch_size(self):
@@ -142,7 +150,7 @@ class TestOptions(unittest.TestCase):
         self.assertEqual(args.device, "cpu")
         cuda_available.assert_not_called()
 
-    def test_preserves_explicit_cuda_request_for_model_loading(self):
+    def test_accepts_available_cuda_device(self):
         argv = [
             "spliceai",
             "-R",
@@ -156,26 +164,144 @@ class TestOptions(unittest.TestCase):
         ]
         with (
             patch.object(sys, "argv", argv),
+            patch("spliceai.__main__.torch.cuda.is_available", return_value=True),
         ):
             args = get_options()
 
         self.assertEqual(args.device, "cuda")
 
-    def test_preserves_auto_device_request_for_model_loading(self):
+    def test_rejects_unavailable_cuda_device(self):
         argv = [
             "spliceai",
             "-R",
             "reference.fa",
             "-A",
             "grch37",
-            "--output-type",
-            "v",
+            "--device",
+            "cuda",
         ]
+        with (
+            patch.object(sys, "argv", argv),
+            patch("spliceai.__main__.torch.cuda.is_available", return_value=False),
+            self.assertRaisesRegex(RuntimeError, "CUDA was requested"),
+        ):
+            get_options()
 
-        with patch.object(sys, "argv", argv):
+    def test_falls_back_from_unavailable_cuda_when_allowed(self):
+        argv = [
+            "spliceai",
+            "-R",
+            "reference.fa",
+            "-A",
+            "grch37",
+            "--device",
+            "cuda",
+            "--allow-fallback",
+        ]
+        with (
+            patch.object(sys, "argv", argv),
+            patch("spliceai.__main__.torch.cuda.is_available", return_value=False),
+            patch("spliceai.__main__.logger.warning") as warning,
+        ):
             args = get_options()
 
-        self.assertEqual(args.device, "auto")
+        self.assertEqual(args.device, "cpu")
+        warning.assert_called_once_with(
+            "CUDA was requested but is not available; falling back to CPU"
+        )
+
+    def test_resolves_auto_device(self):
+        argv = [
+            "spliceai",
+            "-R",
+            "reference.fa",
+            "-A",
+            "grch37",
+        ]
+
+        for cuda_available, expected_device in ((False, "cpu"), (True, "cuda")):
+            with (
+                self.subTest(cuda_available=cuda_available),
+                patch.object(sys, "argv", argv),
+                patch(
+                    "spliceai.__main__.torch.cuda.is_available",
+                    return_value=cuda_available,
+                ),
+            ):
+                args = get_options()
+
+            self.assertEqual(args.device, expected_device)
+
+    def test_accepts_supported_bfloat16(self):
+        argv = [
+            "spliceai",
+            "-R",
+            "reference.fa",
+            "-A",
+            "grch37",
+            "--device",
+            "cpu",
+            "--bfloat16",
+        ]
+        with (
+            patch.object(sys, "argv", argv),
+            patch(
+                "spliceai.__main__.torch.amp.autocast_mode.is_autocast_available",
+                return_value=True,
+            ) as autocast_available,
+        ):
+            args = get_options()
+
+        self.assertTrue(args.bfloat16)
+        autocast_available.assert_called_once_with("cpu")
+
+    def test_rejects_unavailable_bfloat16(self):
+        argv = [
+            "spliceai",
+            "-R",
+            "reference.fa",
+            "-A",
+            "grch37",
+            "--device",
+            "cpu",
+            "--bfloat16",
+        ]
+        with (
+            patch.object(sys, "argv", argv),
+            patch(
+                "spliceai.__main__.torch.amp.autocast_mode.is_autocast_available",
+                return_value=False,
+            ),
+            self.assertRaisesRegex(RuntimeError, "bfloat16 precision was requested"),
+        ):
+            get_options()
+
+    def test_falls_back_from_unavailable_bfloat16_when_allowed(self):
+        argv = [
+            "spliceai",
+            "-R",
+            "reference.fa",
+            "-A",
+            "grch37",
+            "--device",
+            "cpu",
+            "--bfloat16",
+            "--allow-fallback",
+        ]
+        with (
+            patch.object(sys, "argv", argv),
+            patch(
+                "spliceai.__main__.torch.amp.autocast_mode.is_autocast_available",
+                return_value=False,
+            ),
+            patch("spliceai.__main__.logger.warning") as warning,
+        ):
+            args = get_options()
+
+        self.assertFalse(args.bfloat16)
+        warning.assert_called_once_with(
+            "bfloat16 precision was requested but is not available; falling back to float32"
+        )
 
     def test_detects_equivalent_input_and_output_paths(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -329,6 +455,7 @@ class TestMain(unittest.TestCase):
             batch_size=8,
             threads=32,
             device="cpu",
+            bfloat16=True,
             output_type="v",
             overwrite_existing=False,
             write_index=None,
@@ -337,6 +464,8 @@ class TestMain(unittest.TestCase):
         input_vcf.header = MagicMock()
         output_vcf = MagicMock()
         model = MagicMock()
+        device_model = model.to.return_value
+        precision_model = device_model.to.return_value
         annotations = MagicMock()
         reference = MagicMock()
         scorer = MagicMock()
@@ -368,9 +497,10 @@ class TestMain(unittest.TestCase):
             self.assertEqual(main(), 0)
 
         model_type.assert_called_once_with()
-        model.to_device.assert_called_once_with("cpu")
+        model.to.assert_called_once_with("cpu")
+        device_model.to.assert_called_once_with(torch.bfloat16)
         scorer_type.assert_called_once_with(
-            model=model.to_device.return_value,
+            model=precision_model,
             transcript_annotations=annotations,
             ref_fasta=reference,
             distance=50,
@@ -392,13 +522,14 @@ class TestMain(unittest.TestCase):
             batch_size=8,
             threads=None,
             device="cuda",
+            bfloat16=False,
             output_type="v",
             overwrite_existing=False,
             write_index=None,
         )
         input_vcf = MagicMock()
         model = MagicMock()
-        model.to_device.side_effect = ValueError("CUDA unavailable")
+        model.to.side_effect = RuntimeError("CUDA initialization failed")
 
         with (
             patch("spliceai.__main__.configure_process"),
@@ -415,7 +546,7 @@ class TestMain(unittest.TestCase):
             self.assertEqual(main(), 1)
 
         variant_file.assert_called_once_with("input.vcf")
-        model.to_device.assert_called_once_with("cuda")
+        model.to.assert_called_once_with("cuda")
         input_vcf.close.assert_called_once_with()
 
     def test_rejects_same_input_and_output_before_opening(self):
@@ -429,6 +560,7 @@ class TestMain(unittest.TestCase):
             batch_size=8,
             threads=None,
             device="cpu",
+            bfloat16=False,
             output_type="v",
             overwrite_existing=False,
             write_index=None,
@@ -451,7 +583,8 @@ class TestMain(unittest.TestCase):
             M=0,
             batch_size=8,
             threads=None,
-            device="auto",
+            device="cpu",
+            bfloat16=False,
             output_type="v",
             overwrite_existing=True,
             write_index=None,
@@ -512,6 +645,7 @@ class TestMain(unittest.TestCase):
                 batch_size=8,
                 threads=None,
                 device="cpu",
+                bfloat16=False,
                 output_type="v",
                 overwrite_existing=False,
                 write_index=None,
@@ -556,6 +690,7 @@ class TestMain(unittest.TestCase):
                 batch_size=8,
                 threads=None,
                 device="cpu",
+                bfloat16=False,
                 output_type="z",
                 overwrite_existing=False,
                 write_index="csi",
@@ -609,6 +744,7 @@ class TestMain(unittest.TestCase):
                     batch_size=8,
                     threads=None,
                     device="cpu",
+                    bfloat16=False,
                     output_type=output_type,
                     overwrite_existing=False,
                     write_index=None,
@@ -657,6 +793,7 @@ class TestMain(unittest.TestCase):
                     batch_size=8,
                     threads=None,
                     device="cpu",
+                    bfloat16=False,
                     output_type=output_type,
                     overwrite_existing=False,
                     write_index=index_format,

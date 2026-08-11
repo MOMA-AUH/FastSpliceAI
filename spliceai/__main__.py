@@ -253,6 +253,11 @@ def get_options():
         help="inference device, defaults to automatic CUDA detection with CPU fallback",
     )
     parser.add_argument(
+        "--bfloat16",
+        action="store_true",
+        help="use bfloat16 precision for inference, if available",
+    )
+    parser.add_argument(
         "--overwrite-existing",
         action="store_true",
         help="replace existing SpliceAI header and record annotations",
@@ -265,11 +270,34 @@ def get_options():
         metavar="FMT",
         help="index compressed path output; optional FMT is csi (default) or tbi",
     )
+    parser.add_argument(
+        "--allow-fallback",
+        action="store_true",
+        help="allow fallback to CPU if CUDA is not available or float32 if bfloat16 is not supported",
+    )
     args = parser.parse_args()
 
     # Set PyTorch threads
     if args.threads is not None:
         torch.set_num_threads(args.threads)
+
+    # Set and validate device
+    if args.device == "cuda" and not torch.cuda.is_available():
+        if not args.allow_fallback:
+            raise RuntimeError("CUDA was requested but is not available")
+        logger.warning("CUDA was requested but is not available; falling back to CPU")
+        args.device = "cpu"
+    elif args.device == "auto":
+        args.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Set and validate bfloat16 precision
+    if args.bfloat16 and not torch.amp.autocast_mode.is_autocast_available(args.device):
+        if not args.allow_fallback:
+            raise RuntimeError("bfloat16 precision was requested but is not available")
+        logger.warning(
+            "bfloat16 precision was requested but is not available; falling back to float32"
+        )
+        args.bfloat16 = False
 
     return args
 
@@ -306,7 +334,9 @@ def main():
         header = vcf.header
         add_spliceai_header(header, args.overwrite_existing)
         logger.info("Loading models")
-        model = EnsembleSpliceAIModel().to_device(args.device)
+        model = EnsembleSpliceAIModel().to(args.device)
+        if args.bfloat16:
+            model = model.to(torch.bfloat16)
         logger.info("Parsing transcript annotations")
         transcript_annotations = TranscriptAnnotations(args.A)
         logger.info("Loading reference FASTA")
