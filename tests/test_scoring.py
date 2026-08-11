@@ -262,7 +262,12 @@ class TestDeltaScoreOptimizations(unittest.TestCase):
 
     def test_skips_inference_for_unsupported_and_complex_alts(self):
         ann = StubAnnotations()
-        unsupported = Record("1", 6000, "A", [".", "*", "<DEL>"])
+        unsupported = Record(
+            "1",
+            6000,
+            "A",
+            [".", "*", "<DEL>", "A[2:321[", "]2:321]A"],
+        )
         complex_substitution = Record("1", 6000, "AA", ["CC"])
 
         self.assertEqual(score_record(unsupported, ann, 2, 0), [])
