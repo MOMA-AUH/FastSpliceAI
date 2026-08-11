@@ -14,7 +14,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from spliceai import name
+from spliceai import name, logger
 
 __all__ = ["EnsembleSpliceAIModel", "CONTEXT", "HALF_CONTEXT"]
 
@@ -191,6 +191,21 @@ class EnsembleSpliceAIModel(nn.Module):
         self.members = nn.ModuleList(members)
         self.requires_grad_(False)
         self.eval()
+
+    def to_device(self, device: str) -> "EnsembleSpliceAIModel":
+        if device == "auto":
+            if not torch.cuda.is_available():
+                return self.to("cpu")
+            try:
+                return self.to("cuda")
+            except RuntimeError as error:
+                logger.warning(
+                    "CUDA initialization failed (%s); falling back to CPU", error
+                )
+                return self.to("cpu")
+        if device == "cuda" and not torch.cuda.is_available():
+            raise ValueError("CUDA was requested but is not available")
+        return self.to(device)
 
     def forward(self, inputs):
         if not isinstance(inputs, torch.Tensor):

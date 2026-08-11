@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from importlib.resources import files
+from unittest.mock import ANY, MagicMock, call, patch
 
 import h5py
 import numpy as np
@@ -115,6 +116,43 @@ class TestEnsembleModel(unittest.TestCase):
                 )
             with self.assertRaisesRegex(ValueError, "has shape"):
                 model_module.EnsembleSpliceAIModel(model_paths=[weight_file.name])
+
+
+class TestModelDevice(unittest.TestCase):
+    def test_auto_uses_cpu_when_cuda_is_unavailable(self):
+        model = MagicMock(spec=model_module.EnsembleSpliceAIModel)
+        with patch("spliceai.model.torch.cuda.is_available", return_value=False):
+            loaded = model_module.EnsembleSpliceAIModel.to_device(model, "auto")
+
+        self.assertIs(loaded, model.to.return_value)
+        model.to.assert_called_once_with("cpu")
+
+    def test_auto_falls_back_when_cuda_initialization_fails(self):
+        model = MagicMock(spec=model_module.EnsembleSpliceAIModel)
+        cpu_model = MagicMock()
+        model.to.side_effect = (RuntimeError("driver error"), cpu_model)
+        with (
+            patch("spliceai.model.torch.cuda.is_available", return_value=True),
+            patch("spliceai.model.logger.warning") as warning,
+        ):
+            loaded = model_module.EnsembleSpliceAIModel.to_device(model, "auto")
+
+        self.assertIs(loaded, cpu_model)
+        self.assertEqual(model.to.call_args_list, [call("cuda"), call("cpu")])
+        warning.assert_called_once_with(
+            "CUDA initialization failed (%s); falling back to CPU",
+            ANY,
+        )
+
+    def test_explicit_cuda_fails_when_unavailable(self):
+        model = MagicMock(spec=model_module.EnsembleSpliceAIModel)
+        with (
+            patch("spliceai.model.torch.cuda.is_available", return_value=False),
+            self.assertRaisesRegex(ValueError, "not available"),
+        ):
+            model_module.EnsembleSpliceAIModel.to_device(model, "cuda")
+
+        model.to.assert_not_called()
 
 
 if __name__ == "__main__":

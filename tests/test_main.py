@@ -48,7 +48,7 @@ class TestOptions(unittest.TestCase):
 
         self.assertEqual(args.batch_size, DEFAULT_BATCH_SIZE)
         self.assertIsNone(args.threads)
-        self.assertEqual(args.device, "cpu")
+        self.assertEqual(args.device, "auto")
         self.assertFalse(args.overwrite_existing)
 
     def test_accepts_explicit_batch_size(self):
@@ -133,20 +133,6 @@ class TestOptions(unittest.TestCase):
         ]
         with (
             patch.object(sys, "argv", argv),
-            patch("spliceai.__main__.torch.cuda.is_available", return_value=False),
-            patch("spliceai.__main__.logger.warning") as warning,
-        ):
-            args = get_options()
-
-        self.assertEqual(args.device, "cpu")
-        warning.assert_called_once_with("CUDA is not available, falling back to CPU")
-
-    def test_auto_device_uses_cuda_when_available(self):
-        argv = ["spliceai", "-R", "reference.fa", "-A", "grch37"]
-
-        with (
-            patch.object(sys, "argv", argv),
-            patch("spliceai.__main__.torch.cuda.is_available", return_value=True),
         ):
             args = get_options()
 
