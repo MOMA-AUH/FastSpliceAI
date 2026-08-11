@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/illumina/SpliceAI"
+Homepage = "https://github.com/MOMA-AUH/FastSpliceAI"
 
 [project.scripts]
 spliceai = "spliceai.__main__:main"
