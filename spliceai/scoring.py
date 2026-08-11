@@ -10,7 +10,7 @@ from pyfaidx import Fasta
 from spliceai import logger
 from spliceai.annotation import TranscriptAnnotations
 from spliceai.model import EnsembleSpliceAIModel, CONTEXT, HALF_CONTEXT
-from spliceai.utils import is_valid_allele, normalise_chrom, one_hot_encode
+from spliceai.utils import is_valid_allele, normalise_chrom, one_hot_encode_into
 
 DEFAULT_DISTANCE = 50
 DEFAULT_MASK = 0
@@ -43,7 +43,7 @@ class _PredictionTask:
     record_context: _RecordScoreContext
     gene_index: int
     alternate_index: int | None
-    inputs: np.ndarray
+    sequence: str
     output_length: int
     reverse_output: bool
 
@@ -126,14 +126,11 @@ class SplicingScorer:
         sequence,
         reverse_output,
     ):
-        inputs = one_hot_encode(sequence)
-        if reverse_output:
-            inputs = inputs[::-1, ::-1]
         return _PredictionTask(
             record_context=context,
             gene_index=gene_index,
             alternate_index=alternate_index,
-            inputs=inputs,
+            sequence=sequence,
             output_length=len(sequence) - CONTEXT,
             reverse_output=reverse_output,
         )
@@ -232,13 +229,19 @@ class SplicingScorer:
         return _PreparedRecord(context, iter_tasks())
 
     def _infer_batch(self, tasks):
-        max_length = max(len(task.inputs) for task in tasks)
+        max_length = max(len(task.sequence) for task in tasks)
         model_inputs = np.zeros((len(tasks), max_length, 4), dtype=np.float32)
         for task_index, task in enumerate(tasks):
+            sequence_length = len(task.sequence)
             if task.reverse_output:
-                model_inputs[task_index, -len(task.inputs) :] = task.inputs
+                destination = model_inputs[task_index, -sequence_length:]
             else:
-                model_inputs[task_index, : len(task.inputs)] = task.inputs
+                destination = model_inputs[task_index, :sequence_length]
+            one_hot_encode_into(
+                task.sequence,
+                destination,
+                reverse_complement=task.reverse_output,
+            )
 
         predictions = self.model.infer(model_inputs)
         for task_index, task in enumerate(tasks):

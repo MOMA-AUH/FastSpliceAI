@@ -11,6 +11,7 @@ from pyfaidx import Fasta
 from spliceai.annotation import TranscriptAnnotations
 from spliceai.model import EnsembleSpliceAIModel
 from spliceai.scoring import DEFAULT_BATCH_SIZE, SplicingScorer
+from spliceai.utils import one_hot_encode
 from tests import name
 
 torch.set_num_threads(2)
@@ -169,18 +170,23 @@ class TestDeltaScore(unittest.TestCase):
 
 
 class TestDeltaScoreOptimizations(unittest.TestCase):
-    def test_preparation_encodes_tasks_lazily(self):
+    def test_preparation_defers_encoding_until_batch_assembly(self):
         ann = StubAnnotations()
         record = Record("1", 6000, "A", ["C", "G", "T"])
 
-        with patch("spliceai.scoring.one_hot_encode") as encode:
-            encode.side_effect = lambda sequence: np.zeros(
-                (len(sequence), 4), dtype=np.float32
+        with patch("spliceai.scoring.one_hot_encode_into") as encode:
+            encode.side_effect = lambda sequence, destination, **kwargs: (
+                destination.fill(0)
             )
-            prepared = make_scorer(ann, 2, 0)._prepare_record(record)
+            scorer = make_scorer(ann, 2, 0)
+            prepared = scorer._prepare_record(record)
             self.assertEqual(encode.call_count, 0)
-            next(prepared.tasks)
-            self.assertEqual(encode.call_count, 1)
+            tasks = list(prepared.tasks)
+            self.assertEqual(encode.call_count, 0)
+
+            scorer._infer_batch(tasks)
+
+            self.assertEqual(encode.call_count, len(tasks))
 
     def test_uses_an_injected_model(self):
         ann = StubAnnotations()
@@ -343,7 +349,7 @@ class TestDeltaScoreOptimizations(unittest.TestCase):
         )
         self.assertEqual(ann.model.batch_shapes, [(4, 10006, 4)])
 
-    def test_right_aligns_reverse_strand_inputs_after_batch_padding(self):
+    def test_encodes_and_aligns_variable_length_batch_inputs(self):
         ann = StubAnnotations()
         ann.model = CapturingModel()
         records = [
@@ -365,16 +371,22 @@ class TestDeltaScoreOptimizations(unittest.TestCase):
             if task.reverse_output
         ]
         self.assertEqual(
-            [inputs.shape[1] - len(task.inputs) for _, task in reverse_tasks],
+            [inputs.shape[1] - len(task.sequence) for _, task in reverse_tasks],
             [1, 0, 1, 2],
         )
-        for task_index, task in reverse_tasks:
+        for task_index, task in enumerate(prepared_tasks):
             with self.subTest(task_index=task_index):
-                leading_padding = inputs.shape[1] - len(task.inputs)
-                self.assertFalse(inputs[task_index, :leading_padding].any())
-                np.testing.assert_array_equal(
-                    inputs[task_index, leading_padding:], task.inputs
-                )
+                expected = one_hot_encode(task.sequence)
+                padding = inputs.shape[1] - len(task.sequence)
+                if task.reverse_output:
+                    expected = expected[::-1, ::-1]
+                    self.assertFalse(inputs[task_index, :padding].any())
+                    actual = inputs[task_index, padding:]
+                else:
+                    if padding:
+                        self.assertFalse(inputs[task_index, -padding:].any())
+                    actual = inputs[task_index, : len(task.sequence)]
+                np.testing.assert_array_equal(actual, expected)
 
     def test_rejects_invalid_batch_sizes(self):
         ann = StubAnnotations()
@@ -421,9 +433,7 @@ class TestDeltaScoreOptimizations(unittest.TestCase):
         ann.genes = ann.genes[:1]
 
         allowed = make_scorer(ann, 1, 0).score(Record("1", 6000, "AAA", ["A"]))
-        rejected = make_scorer(ann, 1, 0).score(
-            Record("1", 6000, "AAAA", ["A"])
-        )
+        rejected = make_scorer(ann, 1, 0).score(Record("1", 6000, "AAAA", ["A"]))
 
         self.assertEqual(
             allowed,
