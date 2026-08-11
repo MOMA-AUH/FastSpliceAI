@@ -661,7 +661,9 @@ class TestMain(unittest.TestCase):
             with (
                 patch("spliceai.__main__.configure_process"),
                 patch("spliceai.__main__.get_options", return_value=args),
-                patch("spliceai.__main__.EnsembleSpliceAIModel", return_value=MagicMock()),
+                patch(
+                    "spliceai.__main__.EnsembleSpliceAIModel", return_value=MagicMock()
+                ),
                 patch("spliceai.__main__.TranscriptAnnotations"),
                 patch("spliceai.__main__.Fasta", return_value=MagicMock()),
                 patch("spliceai.__main__.SplicingScorer", return_value=scorer),
@@ -702,7 +704,9 @@ class TestMain(unittest.TestCase):
             with (
                 patch("spliceai.__main__.configure_process"),
                 patch("spliceai.__main__.get_options", return_value=args),
-                patch("spliceai.__main__.EnsembleSpliceAIModel", return_value=MagicMock()),
+                patch(
+                    "spliceai.__main__.EnsembleSpliceAIModel", return_value=MagicMock()
+                ),
                 patch("spliceai.__main__.TranscriptAnnotations"),
                 patch("spliceai.__main__.Fasta", return_value=MagicMock()),
                 patch("spliceai.__main__.SplicingScorer", return_value=scorer),
@@ -756,7 +760,10 @@ class TestMain(unittest.TestCase):
                 with (
                     patch("spliceai.__main__.configure_process"),
                     patch("spliceai.__main__.get_options", return_value=args),
-                    patch("spliceai.__main__.EnsembleSpliceAIModel", return_value=MagicMock()),
+                    patch(
+                        "spliceai.__main__.EnsembleSpliceAIModel",
+                        return_value=MagicMock(),
+                    ),
                     patch("spliceai.__main__.TranscriptAnnotations"),
                     patch("spliceai.__main__.Fasta", return_value=MagicMock()),
                     patch("spliceai.__main__.SplicingScorer", return_value=scorer),
@@ -805,7 +812,10 @@ class TestMain(unittest.TestCase):
                 with (
                     patch("spliceai.__main__.configure_process"),
                     patch("spliceai.__main__.get_options", return_value=args),
-                    patch("spliceai.__main__.EnsembleSpliceAIModel", return_value=MagicMock()),
+                    patch(
+                        "spliceai.__main__.EnsembleSpliceAIModel",
+                        return_value=MagicMock(),
+                    ),
                     patch("spliceai.__main__.TranscriptAnnotations"),
                     patch("spliceai.__main__.Fasta", return_value=MagicMock()),
                     patch("spliceai.__main__.SplicingScorer", return_value=scorer),

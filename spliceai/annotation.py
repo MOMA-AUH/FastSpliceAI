@@ -50,9 +50,7 @@ def _format_transcript_interval(row, order, path, line_number):
             f"{path}:{line_number}: gene name and chromosome are required"
         )
     if strand not in {"+", "-"}:
-        raise AnnotationFormatError(
-            f"{path}:{line_number}: STRAND must be '+' or '-'"
-        )
+        raise AnnotationFormatError(f"{path}:{line_number}: STRAND must be '+' or '-'")
 
     try:
         tx_start = int(row[_TX_START_COLUMN])

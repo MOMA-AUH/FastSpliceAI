@@ -84,5 +84,6 @@ class TestTranscriptAnnotations(unittest.TestCase):
                 with self.assertRaises(AnnotationFormatError):
                     TranscriptAnnotations(annotations)
 
+
 if __name__ == "__main__":
     unittest.main()

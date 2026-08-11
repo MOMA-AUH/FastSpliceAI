@@ -9,7 +9,7 @@ from pyfaidx import Fasta
 
 from spliceai import logger
 from spliceai.annotation import TranscriptAnnotations
-from spliceai.model import EnsembleSpliceAIModel, CONTEXT, HALF_CONTEXT
+from spliceai.model import CONTEXT, HALF_CONTEXT, EnsembleSpliceAIModel
 from spliceai.utils import is_valid_allele, normalise_chrom, one_hot_encode_into
 
 DEFAULT_DISTANCE = 50
@@ -144,7 +144,9 @@ class SplicingScorer:
             logger.warning(f"Skipping record (bad input): {record}".strip())
             return _PreparedRecord(empty_context, iter(()))
 
-        genes = self.transcript_annotations.get_overlapping_genes(record.chrom, record.pos)
+        genes = self.transcript_annotations.get_overlapping_genes(
+            record.chrom, record.pos
+        )
         if not genes:
             return _PreparedRecord(empty_context, iter(()))
 
@@ -192,7 +194,9 @@ class SplicingScorer:
             return _PreparedRecord(context, iter(()))
 
         for gene in genes:
-            annotation_distances = self.transcript_annotations.get_pos_data(gene, record.pos)
+            annotation_distances = self.transcript_annotations.get_pos_data(
+                gene, record.pos
+            )
             context.genes.append(_GeneScoreContext(gene, annotation_distances))
 
         context.pending_predictions = len(genes) * (1 + len(simple_alt_indexes))
