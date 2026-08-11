@@ -10,7 +10,7 @@ from pyfaidx import Fasta
 from spliceai import logger
 from spliceai.annotation import TranscriptAnnotations
 from spliceai.model import EnsembleSpliceAIModel, CONTEXT, HALF_CONTEXT
-from spliceai.utils import normalise_chrom, one_hot_encode
+from spliceai.utils import is_valid_allele, normalise_chrom, one_hot_encode
 
 DEFAULT_DISTANCE = 50
 DEFAULT_MASK = 0
@@ -118,10 +118,6 @@ class SplicingScorer:
             self._infer_batch(pending_tasks)
         yield from self._pop_ready_contexts(contexts)
 
-    @staticmethod
-    def _is_unsupported_alt(alt):
-        return any(symbol in alt for symbol in ".-*<>")
-
     def _make_prediction_task(
         self,
         context,
@@ -178,7 +174,7 @@ class SplicingScorer:
         simple_alt_indexes = []
         annotations = [[None for _ in genes] for _ in record.alts]
         for alt_index, alt in enumerate(record.alts):
-            if self._is_unsupported_alt(alt):
+            if not is_valid_allele(alt):
                 continue
             if not (ref_len > 1 and len(alt) > 1):
                 deleted_bases = ref_len - len(alt)

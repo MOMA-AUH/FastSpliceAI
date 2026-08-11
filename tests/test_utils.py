@@ -2,7 +2,42 @@ import unittest
 
 import numpy as np
 
-from spliceai.utils import normalise_chrom, one_hot_encode
+from spliceai.utils import is_valid_allele, normalise_chrom, one_hot_encode
+
+
+class TestIsValidAllele(unittest.TestCase):
+    def test_canonical_bases(self):
+        bases = list("ACGTacgt")
+        for base in bases:
+            self.assertTrue(is_valid_allele(base))
+
+    def test_ambiguous_bases(self):
+        bases = list("CGTRYSWKMBDHVNryswkmbdhvn")
+        for base in bases:
+            self.assertTrue(is_valid_allele(base))
+
+    def test_no_allele(self):
+        self.assertFalse(is_valid_allele(""))
+        self.assertFalse(is_valid_allele("."))
+
+    def test_missing_sequence_context(self):
+        self.assertFalse(is_valid_allele("*"))
+
+    def test_symbolic_sv_allele_codes(self):
+        alleles = [
+            "<DEL>",
+            "<INS>",
+            "<DUP>",
+            "<INV>",
+            "<CNV>",
+            "<BND>",
+            "<TRA>",
+        ]
+        for allele in alleles:
+            self.assertFalse(is_valid_allele(allele))
+
+    def test_bnd_allele(self):
+        self.assertFalse(is_valid_allele("G]chr17:198982]"))
 
 
 class TestNormaliseChrom(unittest.TestCase):
