@@ -31,7 +31,10 @@ class TestOptions(unittest.TestCase):
         ):
             configure_process()
 
-        configure_logging.assert_called_once_with(level=logging.INFO)
+        configure_logging.assert_called_once_with(
+            level=logging.INFO,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+        )
         configure_signal.assert_called_once()
 
     def test_batch_size_defaults_to_eight(self):
@@ -196,7 +199,6 @@ class TestProgressLogging(unittest.TestCase):
         self.assertEqual(
             info.call_args_list,
             [
-                call("Scoring variants"),
                 call(
                     "Scored %d records in %.1f seconds (%.1f records/second)",
                     2,
@@ -235,7 +237,6 @@ class TestProgressLogging(unittest.TestCase):
             self.assertEqual(
                 info.call_args_list,
                 [
-                    call("Scoring variants"),
                     call(
                         "Finished scoring %d records in %.1f seconds "
                         "(%.1f records/second)",
