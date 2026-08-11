@@ -1,0 +1,50 @@
+{% set pyproject = load_file_data("../pyproject.toml", from_recipe_dir=True) %}
+{% set project = pyproject.get("project", {}) %}
+{% set version = project.get("version") %}
+
+package:
+  name: fastspliceai
+  version: "{{ version }}"
+
+source:
+  path: ..
+
+build:
+  number: 0
+  noarch: python
+  script: "{{ PYTHON }} -m pip install . --no-deps --no-build-isolation -vv"
+
+requirements:
+  host:
+    - python >=3.10,<3.14
+    - pip
+    - setuptools >=77.0.3
+  run:
+    - python >=3.10,<3.14
+    - bx-python >=0.14.0
+    - h5py >=3.11
+    - numpy >=1.14.0
+    - pyfaidx >=0.5.0
+    - pysam >=0.10.0
+    - pytorch >=2.6,<3
+
+test:
+  source_files:
+    - tests
+  requires:
+    - pytest >=9.1.1
+  imports:
+    - spliceai
+  commands:
+    - spliceai --help
+    - python -c "from importlib.metadata import version; assert version('spliceai') == '{{ version }}'"
+    - python -m pytest -q
+
+about:
+  home: "{{ project.get("urls", {}).get("Homepage") }}"
+  summary: "{{ project.get("description") }}"
+  license: LicenseRef-PolyForm-Strict-1.0.0
+  license_file:
+    - LICENSE
+    - NOTICE
+    - spliceai/models/LICENSE
