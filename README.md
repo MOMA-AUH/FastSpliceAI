@@ -21,11 +21,7 @@ SpliceAI uses PyTorch for inference. The five original Keras `.h5` model files
 remain bundled and are loaded directly into the PyTorch ensemble; TensorFlow is
 not required. By default, command-line scoring selects CUDA when PyTorch reports
 it as available and otherwise uses CPU. An explicit `--device cuda` request
-fails when CUDA is unavailable unless `--allow-fallback` is also specified. For
-CUDA installation options, use the
-[PyTorch installation selector](https://pytorch.org/get-started/locally/).
-CPU-only systems should use the selector's CPU-specific PyTorch installation to
-avoid downloading unnecessary CUDA runtime packages.
+fails when CUDA is unavailable unless `--allow-fallback` is also specified.
 
 ### Usage
 SpliceAI can be run from the command line:
