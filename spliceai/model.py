@@ -202,18 +202,3 @@ class EnsembleSpliceAIModel(nn.Module):
             [member(channels_first) for member in self.members]
         ).mean(dim=0)
         return predictions.transpose(1, 2)
-
-    def infer(self, inputs):
-        """Return NumPy predictions for channels-last NumPy inputs."""
-        parameter = next(self.parameters())
-        tensor = torch.as_tensor(np.asarray(inputs)).to(device=parameter.device)
-        with (
-            torch.inference_mode(),
-            torch.autocast(
-                device_type=parameter.device.type,
-                dtype=parameter.dtype,
-                enabled=parameter.dtype == torch.bfloat16,
-            ),
-        ):
-            predictions = self(tensor)
-        return predictions.detach().cpu().to(torch.float32).numpy()

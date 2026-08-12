@@ -267,9 +267,9 @@ def get_options():
         help="inference device, defaults to automatic CUDA detection with CPU fallback",
     )
     parser.add_argument(
-        "--bfloat16",
+        "--mixed-precision",
         action="store_true",
-        help="use bfloat16 precision for inference, if available",
+        help="use mixed precision for inference, if available",
     )
     parser.add_argument(
         "--allow-fallback",
@@ -291,14 +291,15 @@ def get_options():
     elif args.device == "auto":
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Set and validate bfloat16 precision
-    if args.bfloat16 and not torch.amp.autocast_mode.is_autocast_available(args.device):
-        if not args.allow_fallback:
-            raise RuntimeError("bfloat16 precision was requested but is not available")
-        logger.warning(
-            "bfloat16 precision was requested but is not available; falling back to float32"
-        )
-        args.bfloat16 = False
+    # Set and validate mixed precision
+    if args.mixed_precision:
+        if not torch.amp.autocast_mode.is_autocast_available(args.device):
+            if not args.allow_fallback:
+                raise RuntimeError("mixed precision was requested but is not available")
+            logger.warning(
+                "mixed precision was requested but is not available; falling back to float32"
+            )
+            args.mixed_precision = False
 
     return args
 
@@ -336,8 +337,6 @@ def main():
         add_spliceai_header(header, args.overwrite_existing)
         logger.info("Loading models")
         model = EnsembleSpliceAIModel().to(args.device)
-        if args.bfloat16:
-            model = model.to(torch.bfloat16)
         logger.info("Parsing transcript annotations")
         transcript_annotations = TranscriptAnnotations(args.A)
         logger.info("Loading reference FASTA")
@@ -358,12 +357,17 @@ def main():
         )
 
         logger.info("Initializing scoring")
-        for record, scores in log_scoring_progress(scorer.score_batch(vcf)):
-            if args.overwrite_existing and "SpliceAI" in record.info:
-                del record.info["SpliceAI"]
-            if scores:
-                record.info["SpliceAI"] = scores
-            output.write(record)
+
+        with (
+            torch.inference_mode(),
+            torch.autocast(device_type=args.device, enabled=args.mixed_precision),
+        ):
+            for record, scores in log_scoring_progress(scorer.score_batch(vcf)):
+                if args.overwrite_existing and "SpliceAI" in record.info:
+                    del record.info["SpliceAI"]
+                if scores:
+                    record.info["SpliceAI"] = scores
+                output.write(record)
         output.close()
         output = None
         if output_destination is not None:

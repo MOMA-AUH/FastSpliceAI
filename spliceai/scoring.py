@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from numbers import Integral
 
 import numpy as np
+import torch
 from bx.intervals.intersection import Interval
 from pyfaidx import Fasta
 
@@ -248,8 +249,9 @@ class SplicingScorer:
                 destination,
                 reverse_complement=task.reverse_output,
             )
+        model_inputs = torch.from_numpy(model_inputs)
 
-        predictions = self.model.infer(model_inputs)
+        predictions = self.model(model_inputs).detach().cpu().numpy()
         for task_index, task in enumerate(tasks):
             prediction = predictions[task_index]
             if task.reverse_output:

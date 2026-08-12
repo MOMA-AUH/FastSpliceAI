@@ -32,16 +32,16 @@ class CountingModel:
         self.calls = 0
         self.batch_shapes = []
 
-    def infer(self, inputs):
+    def __call__(self, inputs):
         self.calls += 1
         self.batch_shapes.append(inputs.shape)
         output_length = inputs.shape[1] - 10000
-        return np.zeros((inputs.shape[0], output_length, 3), dtype=np.float32)
+        return torch.zeros((inputs.shape[0], output_length, 3), dtype=torch.float32)
 
 
 class MaskingModel(CountingModel):
-    def infer(self, inputs):
-        predictions = super().infer(inputs)
+    def __call__(self, inputs):
+        predictions = super().__call__(inputs)
         predictions[1::2, 2, 1] = 0.8
         predictions[1::2, 3, 2] = 0.7
         return predictions
@@ -52,9 +52,9 @@ class CapturingModel(CountingModel):
         super().__init__()
         self.inputs = []
 
-    def infer(self, inputs):
-        self.inputs.append(inputs.copy())
-        return super().infer(inputs)
+    def __call__(self, inputs):
+        self.inputs.append(inputs.clone())
+        return super().__call__(inputs)
 
 
 class StubAnnotations:
