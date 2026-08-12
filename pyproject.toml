@@ -49,6 +49,7 @@ spliceai = [
 
 [dependency-groups]
 dev = [
+    "build>=1.2",
     "pytest>=9.1.1",
     "ruff>=0.9",
 ]

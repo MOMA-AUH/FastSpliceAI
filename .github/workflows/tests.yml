@@ -53,3 +53,56 @@ jobs:
 
       - name: Run tests
         run: python -m pytest
+
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install package and development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --group dev --editable .
+
+      - name: Build source and wheel distributions
+        run: python -m build
+
+      - name: Verify wheel runtime assets
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheel = next(Path("dist").glob("*.whl"))
+          required = {
+              "spliceai/annotations/grch37.txt",
+              "spliceai/annotations/grch38.txt",
+              "spliceai/models/LICENSE",
+              *(f"spliceai/models/spliceai{index}.h5" for index in range(1, 6)),
+          }
+          with ZipFile(wheel) as archive:
+              missing = required.difference(archive.namelist())
+          if missing:
+              raise SystemExit(f"Wheel is missing runtime assets: {sorted(missing)}")
+          PY
+
+      - name: Test installed wheel
+        run: |
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+          spliceai --help
+
+      - name: Test extracted source distribution
+        run: |
+          set -euo pipefail
+          TEST_DIR="$(mktemp -d)"
+          tar -xzf dist/*.tar.gz -C "$TEST_DIR"
+          cd "$TEST_DIR"/spliceai-*
+          python -m pytest -q
