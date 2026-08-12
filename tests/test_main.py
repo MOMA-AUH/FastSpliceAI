@@ -9,7 +9,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
 import pysam
-import torch
 
 from spliceai import __version__
 from spliceai.__main__ import (
@@ -70,8 +69,9 @@ class TestOptions(unittest.TestCase):
         self.assertEqual(args.batch_size, DEFAULT_BATCH_SIZE)
         self.assertIsNone(args.threads)
         self.assertEqual(args.device, "cpu")
-        self.assertFalse(args.bfloat16)
+        self.assertFalse(args.mixed_precision)
         self.assertFalse(args.allow_fallback)
+        self.assertFalse(args.compile)
         self.assertFalse(args.overwrite_existing)
 
     def test_accepts_explicit_batch_size(self):
@@ -232,7 +232,7 @@ class TestOptions(unittest.TestCase):
 
             self.assertEqual(args.device, expected_device)
 
-    def test_accepts_supported_bfloat16(self):
+    def test_accepts_supported_mixed_precision(self):
         argv = [
             "spliceai",
             "-R",
@@ -241,7 +241,7 @@ class TestOptions(unittest.TestCase):
             "grch37",
             "--device",
             "cpu",
-            "--bfloat16",
+            "--mixed-precision",
         ]
         with (
             patch.object(sys, "argv", argv),
@@ -252,10 +252,27 @@ class TestOptions(unittest.TestCase):
         ):
             args = get_options()
 
-        self.assertTrue(args.bfloat16)
+        self.assertTrue(args.mixed_precision)
         autocast_available.assert_called_once_with("cpu")
 
-    def test_rejects_unavailable_bfloat16(self):
+    def test_accepts_model_compilation(self):
+        argv = [
+            "spliceai",
+            "-R",
+            "reference.fa",
+            "-A",
+            "grch37",
+            "--compile",
+        ]
+        with (
+            patch.object(sys, "argv", argv),
+            patch("spliceai.__main__.torch.cuda.is_available", return_value=False),
+        ):
+            args = get_options()
+
+        self.assertTrue(args.compile)
+
+    def test_rejects_unavailable_mixed_precision(self):
         argv = [
             "spliceai",
             "-R",
@@ -264,7 +281,7 @@ class TestOptions(unittest.TestCase):
             "grch37",
             "--device",
             "cpu",
-            "--bfloat16",
+            "--mixed-precision",
         ]
         with (
             patch.object(sys, "argv", argv),
@@ -272,11 +289,11 @@ class TestOptions(unittest.TestCase):
                 "spliceai.__main__.torch.amp.autocast_mode.is_autocast_available",
                 return_value=False,
             ),
-            self.assertRaisesRegex(RuntimeError, "bfloat16 precision was requested"),
+            self.assertRaisesRegex(RuntimeError, "mixed precision was requested"),
         ):
             get_options()
 
-    def test_falls_back_from_unavailable_bfloat16_when_allowed(self):
+    def test_falls_back_from_unavailable_mixed_precision_when_allowed(self):
         argv = [
             "spliceai",
             "-R",
@@ -285,7 +302,7 @@ class TestOptions(unittest.TestCase):
             "grch37",
             "--device",
             "cpu",
-            "--bfloat16",
+            "--mixed-precision",
             "--allow-fallback",
         ]
         with (
@@ -298,9 +315,9 @@ class TestOptions(unittest.TestCase):
         ):
             args = get_options()
 
-        self.assertFalse(args.bfloat16)
+        self.assertFalse(args.mixed_precision)
         warning.assert_called_once_with(
-            "bfloat16 precision was requested but is not available; falling back to float32"
+            "mixed precision was requested but is not available; falling back to float32"
         )
 
     def test_detects_equivalent_input_and_output_paths(self):
@@ -444,7 +461,7 @@ class TestMain(unittest.TestCase):
             "1\t10\t.\tA\tC\t.\tPASS\t.\n"
         )
 
-    def test_closes_resources_after_success(self):
+    def test_configures_inference_and_closes_resources_after_success(self):
         args = SimpleNamespace(
             I="input.vcf",
             O="output.vcf",
@@ -455,7 +472,8 @@ class TestMain(unittest.TestCase):
             batch_size=8,
             threads=32,
             device="cpu",
-            bfloat16=True,
+            mixed_precision=True,
+            compile=True,
             output_type="v",
             overwrite_existing=False,
             write_index=None,
@@ -465,7 +483,8 @@ class TestMain(unittest.TestCase):
         output_vcf = MagicMock()
         model = MagicMock()
         device_model = model.to.return_value
-        precision_model = device_model.to.return_value
+        original_forward = device_model.forward
+        compiled_forward = MagicMock()
         annotations = MagicMock()
         reference = MagicMock()
         scorer = MagicMock()
@@ -493,20 +512,32 @@ class TestMain(unittest.TestCase):
             patch(
                 "spliceai.__main__.SplicingScorer", return_value=scorer
             ) as scorer_type,
+            patch(
+                "spliceai.__main__.torch.compile", return_value=compiled_forward
+            ) as compile_model,
+            patch("spliceai.__main__.torch.inference_mode") as inference_mode,
+            patch("spliceai.__main__.torch.autocast") as autocast,
         ):
             self.assertEqual(main(), 0)
 
         model_type.assert_called_once_with()
         model.to.assert_called_once_with("cpu")
-        device_model.to.assert_called_once_with(torch.bfloat16)
+        compile_model.assert_called_once_with(
+            original_forward, dynamic=True, fullgraph=True
+        )
+        self.assertIs(device_model.forward, compiled_forward)
         scorer_type.assert_called_once_with(
-            model=precision_model,
+            model=device_model,
             transcript_annotations=annotations,
             ref_fasta=reference,
             distance=50,
             mask=0,
             batch_size=8,
         )
+        inference_mode.assert_called_once_with()
+        autocast.assert_called_once_with(device_type="cpu", enabled=True)
+        inference_mode.return_value.__enter__.assert_called_once_with()
+        autocast.return_value.__enter__.assert_called_once_with()
         reference.close.assert_called_once_with()
         input_vcf.close.assert_called_once_with()
         output_vcf.close.assert_called_once_with()
@@ -522,7 +553,8 @@ class TestMain(unittest.TestCase):
             batch_size=8,
             threads=None,
             device="cuda",
-            bfloat16=False,
+            mixed_precision=False,
+            compile=False,
             output_type="v",
             overwrite_existing=False,
             write_index=None,
@@ -560,7 +592,8 @@ class TestMain(unittest.TestCase):
             batch_size=8,
             threads=None,
             device="cpu",
-            bfloat16=False,
+            mixed_precision=False,
+            compile=False,
             output_type="v",
             overwrite_existing=False,
             write_index=None,
@@ -584,7 +617,8 @@ class TestMain(unittest.TestCase):
             batch_size=8,
             threads=None,
             device="cpu",
-            bfloat16=False,
+            mixed_precision=False,
+            compile=False,
             output_type="v",
             overwrite_existing=True,
             write_index=None,
@@ -645,7 +679,8 @@ class TestMain(unittest.TestCase):
                 batch_size=8,
                 threads=None,
                 device="cpu",
-                bfloat16=False,
+                mixed_precision=False,
+                compile=False,
                 output_type="v",
                 overwrite_existing=False,
                 write_index=None,
@@ -692,7 +727,8 @@ class TestMain(unittest.TestCase):
                 batch_size=8,
                 threads=None,
                 device="cpu",
-                bfloat16=False,
+                mixed_precision=False,
+                compile=False,
                 output_type="z",
                 overwrite_existing=False,
                 write_index="csi",
@@ -748,7 +784,8 @@ class TestMain(unittest.TestCase):
                     batch_size=8,
                     threads=None,
                     device="cpu",
-                    bfloat16=False,
+                    mixed_precision=False,
+                    compile=False,
                     output_type=output_type,
                     overwrite_existing=False,
                     write_index=None,
@@ -800,7 +837,8 @@ class TestMain(unittest.TestCase):
                     batch_size=8,
                     threads=None,
                     device="cpu",
-                    bfloat16=False,
+                    mixed_precision=False,
+                    compile=False,
                     output_type=output_type,
                     overwrite_existing=False,
                     write_index=index_format,

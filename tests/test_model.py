@@ -73,7 +73,8 @@ class TestEnsembleModel(unittest.TestCase):
             rtol=1e-4,
             atol=1e-12,
         )
-        ensemble_prediction = self.model.infer(inputs)
+        with torch.inference_mode():
+            ensemble_prediction = self.model(torch.from_numpy(inputs)).numpy()
         self.assertEqual(ensemble_prediction.shape, (1, 1, 3))
         np.testing.assert_allclose(
             ensemble_prediction[0, 0],
@@ -117,7 +118,7 @@ class TestEnsembleModel(unittest.TestCase):
                 model_module.EnsembleSpliceAIModel(model_paths=[weight_file.name])
 
 
-class TestBfloat16Inference(unittest.TestCase):
+class TestMixedPrecisionInference(unittest.TestCase):
     def test_cpu_probabilities_match_float32(self):
         random = np.random.default_rng(20240807)
         bases = random.integers(0, 4, size=(3, 10021))
@@ -129,20 +130,19 @@ class TestBfloat16Inference(unittest.TestCase):
         parameter = next(model.parameters())
         self.assertEqual(parameter.device.type, "cpu")
         self.assertEqual(parameter.dtype, torch.float32)
-        float32_predictions = model.infer(inputs)
-
-        model.to(torch.bfloat16)
-        parameter = next(model.parameters())
-        self.assertEqual(parameter.device.type, "cpu")
-        self.assertEqual(parameter.dtype, torch.bfloat16)
-        bfloat16_predictions = model.infer(inputs)
+        tensor = torch.from_numpy(inputs)
+        with torch.inference_mode():
+            float32_predictions = model(tensor).numpy()
+        with torch.inference_mode(), torch.autocast(device_type="cpu"):
+            mixed_precision_predictions = model(tensor).to(torch.float32).numpy()
 
         self.assertEqual(float32_predictions.shape, (3, 21, 3))
-        self.assertEqual(bfloat16_predictions.shape, float32_predictions.shape)
+        self.assertEqual(mixed_precision_predictions.shape, float32_predictions.shape)
         self.assertTrue(np.isfinite(float32_predictions).all())
-        self.assertTrue(np.isfinite(bfloat16_predictions).all())
+        self.assertTrue(np.isfinite(mixed_precision_predictions).all())
+        self.assertEqual(next(model.parameters()).dtype, torch.float32)
         np.testing.assert_allclose(
-            bfloat16_predictions,
+            mixed_precision_predictions,
             float32_predictions,
             rtol=2e-3,
             atol=1e-4,
