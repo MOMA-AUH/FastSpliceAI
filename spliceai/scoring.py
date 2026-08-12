@@ -85,7 +85,9 @@ class SplicingScorer:
         self.mask = bool(mask)
         self.batch_size = int(batch_size)
         self.coverage = 2 * self.distance + 1
+        self.coverage_midpoint = self.coverage // 2
         self.window_width = CONTEXT + self.coverage
+        self.window_midpoint = self.window_width // 2
 
     def score(self, record):
         """Return delta scores for one variant record."""
@@ -152,8 +154,8 @@ class SplicingScorer:
 
         reference_chrom = next(iter(self.ref_fasta.keys()), "")
         chrom = normalise_chrom(record.chrom, reference_chrom)
-        window_start = record.pos - self.window_width // 2 - 1
-        window_end = record.pos + self.window_width // 2
+        window_start = record.pos - self.window_midpoint - 1
+        window_end = record.pos + self.window_midpoint
         try:
             sequence = self.ref_fasta[chrom][window_start:window_end].seq
         except (IndexError, KeyError, ValueError):
@@ -161,8 +163,7 @@ class SplicingScorer:
             return _PreparedRecord(empty_context, iter(()))
 
         ref_len = len(record.ref)
-        midpoint = self.window_width // 2
-        if sequence[midpoint : midpoint + ref_len].casefold() != record.ref.casefold():
+        if sequence[self.window_midpoint : self.window_midpoint + ref_len].casefold() != record.ref.casefold():
             logger.warning(f"Skipping record (ref issue): {record}".strip())
             return _PreparedRecord(empty_context, iter(()))
 
@@ -202,10 +203,11 @@ class SplicingScorer:
         context.pending_predictions = len(genes) * (1 + len(simple_alt_indexes))
 
         def iter_tasks():
+            ref_midpoint_offset = self.window_midpoint + ref_len
             for gene_index, gene_context in enumerate(context.genes):
                 annotation_distances = gene_context.annotation_distances
-                pad_start = max(midpoint + annotation_distances[0], 0)
-                pad_end = max(midpoint - annotation_distances[1], 0)
+                pad_start = max(self.window_midpoint + annotation_distances[0], 0)
+                pad_end = max(self.window_midpoint - annotation_distances[1], 0)
                 reference_sequence = (
                     "N" * pad_start
                     + sequence[pad_start : self.window_width - pad_end]
@@ -218,9 +220,9 @@ class SplicingScorer:
 
                 for alt_index in simple_alt_indexes:
                     alternate_sequence = (
-                        reference_sequence[:midpoint]
+                        reference_sequence[:self.window_midpoint]
                         + record.alts[alt_index]
-                        + reference_sequence[midpoint + ref_len :]
+                        + reference_sequence[ref_midpoint_offset:]
                     )
                     yield self._make_prediction_task(
                         context,
@@ -265,7 +267,7 @@ class SplicingScorer:
         alt = record.alts[alternate_index]
         ref_len = len(record.ref)
         alt_len = len(alt)
-        score_midpoint = self.coverage // 2
+        alt_coverage_midpoint = self.coverage_midpoint + alt_len
         reference = gene_context.reference_prediction
         alternate = gene_context.alternate_predictions[alternate_index]
 
@@ -273,21 +275,21 @@ class SplicingScorer:
             deleted_bases = ref_len - alt_len
             alternate = np.concatenate(
                 [
-                    alternate[:, : score_midpoint + alt_len],
+                    alternate[:, : alt_coverage_midpoint],
                     np.zeros((1, deleted_bases, 3), dtype=alternate.dtype),
-                    alternate[:, score_midpoint + alt_len :],
+                    alternate[:, alt_coverage_midpoint :],
                 ],
                 axis=1,
             )
         elif alt_len > 1:
             alternate = np.concatenate(
                 [
-                    alternate[:, :score_midpoint],
+                    alternate[:, :self.coverage_midpoint],
                     np.max(
-                        alternate[:, score_midpoint : score_midpoint + alt_len],
+                        alternate[:, self.coverage_midpoint : alt_coverage_midpoint],
                         axis=1,
                     )[:, None, :],
-                    alternate[:, score_midpoint + alt_len :],
+                    alternate[:, alt_coverage_midpoint :],
                 ],
                 axis=1,
             )
@@ -300,10 +302,10 @@ class SplicingScorer:
         donor_gain_index = donor_delta.argmax()
         donor_loss_index = (-donor_delta).argmax()
 
-        acceptor_gain_position = acceptor_gain_index - score_midpoint
-        acceptor_loss_position = acceptor_loss_index - score_midpoint
-        donor_gain_position = donor_gain_index - score_midpoint
-        donor_loss_position = donor_loss_index - score_midpoint
+        acceptor_gain_position = acceptor_gain_index - self.coverage_midpoint
+        acceptor_loss_position = acceptor_loss_index - self.coverage_midpoint
+        donor_gain_position = donor_gain_index - self.coverage_midpoint
+        donor_loss_position = donor_loss_index - self.coverage_midpoint
 
         acceptor_gain = acceptor_delta[acceptor_gain_index]
         acceptor_loss = (
