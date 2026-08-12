@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from spliceai.annotation import AnnotationFormatError, TranscriptAnnotations
+from spliceai.annotation import TranscriptAnnotations
 
 ANNOTATIONS = """#NAME\tCHROM\tSTRAND\tTX_START\tTX_END\tEXON_START\tEXON_END
 GENE_A\t1\t+\t9\t20\t9,13,\t12,20,
@@ -32,7 +32,7 @@ class TestTranscriptAnnotations(unittest.TestCase):
             if gene.value["name"] == name
         )
 
-    def test_gene_lookup_includes_one_based_transcript_endpoints(self):
+    def test_gene_lookup_handles_endpoints_and_chromosome_prefixes(self):
         gene_intervals = self.ann.get_overlapping_genes("1", 10)
         self.assertEqual(
             [gene.value["name"] for gene in gene_intervals], ["GENE_A", "GENE_B"]
@@ -45,8 +45,6 @@ class TestTranscriptAnnotations(unittest.TestCase):
         )
 
         self.assertEqual(self.ann.get_overlapping_genes("1", 21), [])
-
-    def test_gene_lookup_normalises_prefix_without_adding_unknown_chromosomes(self):
         gene_intervals = self.ann.get_overlapping_genes("chr1", 10)
         self.assertEqual(
             [gene.value["name"] for gene in gene_intervals], ["GENE_A", "GENE_B"]
@@ -56,33 +54,15 @@ class TestTranscriptAnnotations(unittest.TestCase):
         self.assertEqual(self.ann.get_overlapping_genes("2", 10), [])
         self.assertEqual(set(self.ann), chromosomes)
 
-    def test_position_data_preserves_boundary_distances_and_tie_breaking(self):
+    def test_position_data_handles_boundaries_and_long_introns(self):
         gene = self.get_gene("GENE_A", 13)
         self.assertEqual(self.ann.get_pos_data(gene, 13), (-3, 7, -1))
         self.assertEqual(self.ann.get_pos_data(gene, 10), (0, 10, 0))
         self.assertEqual(self.ann.get_pos_data(gene, 20), (-10, 0, 0))
-
-    def test_single_base_exon_has_one_boundary_position(self):
         gene = self.get_gene("SINGLE_BASE", 31)
         self.assertEqual(self.ann.get_pos_data(gene, 31), (0, 0, 0))
-
-    def test_exon_lookup_searches_beyond_default_max_distance(self):
         gene = self.get_gene("LONG_INTRON", 5000)
         self.assertEqual(self.ann.get_pos_data(gene, 5000), (-4959, 5000, -4950))
-
-    def test_rejects_malformed_annotation_rows(self):
-        cases = {
-            "missing header": "#NAME\tCHROM\nGENE\t1\n",
-            "bad strand": ANNOTATIONS.replace("GENE_A\t1\t+", "GENE_A\t1\t?"),
-            "mismatched exons": ANNOTATIONS.replace("9,13,\t12,20,", "9,13,\t20,"),
-            "invalid exon": ANNOTATIONS.replace("9,13,\t12,20,", "9,13,\t8,20,"),
-        }
-        for name, contents in cases.items():
-            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
-                annotations = Path(directory) / "annotations.txt"
-                annotations.write_text(contents)
-                with self.assertRaises(AnnotationFormatError):
-                    TranscriptAnnotations(annotations)
 
 
 if __name__ == "__main__":

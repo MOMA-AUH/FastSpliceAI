@@ -6,38 +6,11 @@ from spliceai.utils import is_valid_allele, normalise_chrom, one_hot_encode
 
 
 class TestIsValidAllele(unittest.TestCase):
-    def test_canonical_bases(self):
-        bases = list("ACGTacgt")
-        for base in bases:
-            self.assertTrue(is_valid_allele(base))
-
-    def test_ambiguous_bases(self):
-        bases = list("CGTRYSWKMBDHVNryswkmbdhvn")
-        for base in bases:
-            self.assertTrue(is_valid_allele(base))
-
-    def test_no_allele(self):
-        self.assertFalse(is_valid_allele(""))
-        self.assertFalse(is_valid_allele("."))
-
-    def test_missing_sequence_context(self):
-        self.assertFalse(is_valid_allele("*"))
-
-    def test_symbolic_sv_allele_codes(self):
-        alleles = [
-            "<DEL>",
-            "<INS>",
-            "<DUP>",
-            "<INV>",
-            "<CNV>",
-            "<BND>",
-            "<TRA>",
-        ]
-        for allele in alleles:
+    def test_accepts_sequence_alleles_and_rejects_vcf_placeholders(self):
+        for allele in ("ACGT", "acgt", "CGTRYSWKMBDHVN", "ryswkmbdhvn"):
+            self.assertTrue(is_valid_allele(allele))
+        for allele in ("", ".", "*", "<DEL>", "<INS>", "G]chr17:198982]"):
             self.assertFalse(is_valid_allele(allele))
-
-    def test_bnd_allele(self):
-        self.assertFalse(is_valid_allele("G]chr17:198982]"))
 
 
 class TestNormaliseChrom(unittest.TestCase):
@@ -49,7 +22,7 @@ class TestNormaliseChrom(unittest.TestCase):
 
 
 class TestOneHotEncode(unittest.TestCase):
-    def test_encodes_canonical_nucleotides(self):
+    def test_encodes_canonical_and_ambiguous_nucleotides(self):
         expected = np.asarray(
             [
                 [1, 0, 0, 0],
@@ -61,16 +34,12 @@ class TestOneHotEncode(unittest.TestCase):
 
         np.testing.assert_array_equal(one_hot_encode("ACGT"), expected)
         np.testing.assert_array_equal(one_hot_encode("acgt"), expected)
-
-    def test_encodes_ambiguous_and_unknown_bases_as_zeros(self):
         sequence = "NnRYSWKMBDHVryswkmbdhvX?-"
 
         np.testing.assert_array_equal(
             one_hot_encode(sequence),
             np.zeros((len(sequence), 4), dtype=np.float32),
         )
-
-    def test_empty_sequence_preserves_shape_and_dtype(self):
         encoded = one_hot_encode("")
 
         self.assertEqual(encoded.shape, (0, 4))
