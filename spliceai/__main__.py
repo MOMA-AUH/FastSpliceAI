@@ -276,6 +276,11 @@ def get_options():
         action="store_true",
         help="allow fallback to CPU if CUDA is not available or float32 if bfloat16 is not supported",
     )
+    parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="compile the model for faster inference at the expense of slower startup",
+    )
     args = parser.parse_args()
 
     # Set PyTorch threads
@@ -337,6 +342,8 @@ def main():
         add_spliceai_header(header, args.overwrite_existing)
         logger.info("Loading models")
         model = EnsembleSpliceAIModel().to(args.device)
+        if args.compile:
+            model.forward = torch.compile(model.forward, dynamic=True, fullgraph=True)
         logger.info("Parsing transcript annotations")
         transcript_annotations = TranscriptAnnotations(args.A)
         logger.info("Loading reference FASTA")
