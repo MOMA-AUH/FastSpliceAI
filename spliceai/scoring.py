@@ -164,7 +164,10 @@ class SplicingScorer:
             return _PreparedRecord(empty_context, iter(()))
 
         ref_len = len(record.ref)
-        if sequence[self.window_midpoint : self.window_midpoint + ref_len].casefold() != record.ref.casefold():
+        if (
+            sequence[self.window_midpoint : self.window_midpoint + ref_len].casefold()
+            != record.ref.casefold()
+        ):
             logger.warning(f"Skipping record (ref issue): {record}".strip())
             return _PreparedRecord(empty_context, iter(()))
 
@@ -221,7 +224,7 @@ class SplicingScorer:
 
                 for alt_index in simple_alt_indexes:
                     alternate_sequence = (
-                        reference_sequence[:self.window_midpoint]
+                        reference_sequence[: self.window_midpoint]
                         + record.alts[alt_index]
                         + reference_sequence[ref_midpoint_offset:]
                     )
@@ -277,21 +280,21 @@ class SplicingScorer:
             deleted_bases = ref_len - alt_len
             alternate = np.concatenate(
                 [
-                    alternate[:, : alt_coverage_midpoint],
+                    alternate[:, :alt_coverage_midpoint],
                     np.zeros((1, deleted_bases, 3), dtype=alternate.dtype),
-                    alternate[:, alt_coverage_midpoint :],
+                    alternate[:, alt_coverage_midpoint:],
                 ],
                 axis=1,
             )
         elif alt_len > 1:
             alternate = np.concatenate(
                 [
-                    alternate[:, :self.coverage_midpoint],
+                    alternate[:, : self.coverage_midpoint],
                     np.max(
                         alternate[:, self.coverage_midpoint : alt_coverage_midpoint],
                         axis=1,
                     )[:, None, :],
-                    alternate[:, alt_coverage_midpoint :],
+                    alternate[:, alt_coverage_midpoint:],
                 ],
                 axis=1,
             )
